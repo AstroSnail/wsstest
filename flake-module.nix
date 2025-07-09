@@ -21,6 +21,7 @@
         packages = wsstest.buildInputs ++ [
           pkgs.statix
           pkgs.valgrind
+          pkgs.xscreensaver
         ];
         shellHook = perSystem.config.pre-commit.installationScript;
       };
