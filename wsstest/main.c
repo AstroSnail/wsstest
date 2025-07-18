@@ -1,5 +1,3 @@
-// vim: set expandtab formatoptions+=ct shiftwidth=2 softtabstop=2 textwidth=80:
-
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
