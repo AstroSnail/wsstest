@@ -61,8 +61,8 @@ static int connect(xcb_connection_t **out_connection,
   return 0;
 }
 
-static void window_request(xcb_connection_t *connection, xcb_screen_t *screen,
-                           xcb_window_t *out_window,
+static void window_request(xcb_connection_t *connection,
+                           const xcb_screen_t *screen, xcb_window_t *out_window,
                            xcb_void_cookie_t (*cookies)[2]) {
   xcb_window_t window = 0;
   xcb_void_cookie_t *cookiestring = *cookies;
@@ -80,8 +80,8 @@ static void window_request(xcb_connection_t *connection, xcb_screen_t *screen,
 }
 
 static int window_check(xcb_connection_t *connection,
-                        xcb_void_cookie_t (*cookies)[2]) {
-  xcb_void_cookie_t *cookiestring = *cookies;
+                        const xcb_void_cookie_t (*cookies)[2]) {
+  const xcb_void_cookie_t *cookiestring = *cookies;
   CLEANUP(generic_error) xcb_generic_error_t *generic_error = NULL;
 
   generic_error = xcb_request_check(connection, cookiestring[0]);
@@ -99,13 +99,13 @@ static int window_check(xcb_connection_t *connection,
   return 0;
 }
 
-static int screensaver(xcb_window_t window, char *screensaver_path) {
+static int screensaver(xcb_window_t window, const char *screensaver_path) {
   enum { window_id_len = sizeof(xcb_window_t) * 2 + 3 };
   char window_id_string[window_id_len] = {0};
   pid_t screensaver_pid = 0;
   long error = 0; /* compatible with int and pid_t */
   int screensaver_status = 0;
-  char *signal_desc = NULL;
+  const char *signal_desc = NULL;
 
   snprintf(window_id_string, window_id_len, "0x%" PRIx32, window);
 
@@ -157,7 +157,7 @@ static int screensaver(xcb_window_t window, char *screensaver_path) {
 }
 
 int main(int argc, char **argv) {
-  char *screensaver_path = NULL;
+  const char *screensaver_path = NULL;
   int error = 0;
   CLEANUP(connection) xcb_connection_t *connection = NULL;
   xcb_screen_t *screen_preferred = NULL;
