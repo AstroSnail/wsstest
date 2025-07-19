@@ -103,7 +103,8 @@ static int screensaver(xcb_window_t window, const char *screensaver_path) {
   enum { window_id_len = sizeof(xcb_window_t) * 2 + 3 };
   char window_id_string[window_id_len] = {0};
   pid_t screensaver_pid = 0;
-  long error = 0; /* compatible with int and pid_t */
+  int error = 0;
+  long error2 = 0; /* pid_t fits in a signed long */
   int screensaver_status = 0;
   const char *signal_desc = NULL;
 
@@ -131,25 +132,25 @@ static int screensaver(xcb_window_t window, const char *screensaver_path) {
     return -1;
   }
 
-  error = waitpid(screensaver_pid, &screensaver_status, 0);
-  if (error < 0) {
+  error2 = waitpid(screensaver_pid, &screensaver_status, 0);
+  if (error2 < 0) {
     perror("waitpid");
     return -1;
   }
-  if (error != screensaver_pid) {
-    fprintf(stderr, "whose child is this? %ld\n", error);
+  if (error2 != screensaver_pid) {
+    fprintf(stderr, "whose child is this? %ld\n", error2);
     return -1;
   }
 
   if (WIFEXITED(screensaver_status)) {
     error = WEXITSTATUS(screensaver_status);
-    fprintf(stdout, "screensaver exited normally: %ld\n", error);
+    fprintf(stdout, "screensaver exited normally: %d\n", error);
   }
 
   if (WIFSIGNALED(screensaver_status)) {
     error = WTERMSIG(screensaver_status);
     signal_desc = strsignal(error);
-    fprintf(stdout, "screensaver exited by an uncaught signal: %ld %s\n", error,
+    fprintf(stdout, "screensaver exited by an uncaught signal: %d %s\n", error,
             signal_desc);
   }
 
