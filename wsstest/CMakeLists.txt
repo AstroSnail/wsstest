@@ -13,7 +13,17 @@ add_executable(wsstest main.c)
 # project is otherwise pmuch c90 compatible with posix.1-2008 libraries
 # (string.h strsignal() in particular)
 target_compile_features(wsstest PRIVATE c_std_23)
-target_compile_options(wsstest PRIVATE -Wall -Wextra -Wpedantic -Wc++-compat -Wc90-c99-compat -Wc99-c11-compat -Wc11-c23-compat)
+target_compile_options(wsstest PRIVATE -Wall -Wextra -Wpedantic -Wc++-compat)
+if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
+	target_compile_options(wsstest PRIVATE
+		-Wc90-c99-compat -Wc99-c11-compat -Wc11-c23-compat
+	)
+elseif (CMAKE_C_COMPILER_ID STREQUAL "Clang")
+	target_compile_options(wsstest PRIVATE
+		-Wc99-compat -Wc99-extensions -Wpre-c11-compat -Wc11-extensions
+		-Wpre-c23-compat -Wc23-compat -Wc23-extensions
+	)
+endif()
 target_link_libraries(wsstest xcb)
 install(TARGETS wsstest)
 

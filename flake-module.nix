@@ -16,6 +16,7 @@
 
     let
       wsstest = pkgs.callPackage ./wsstest.nix { };
+      wsstest-clang = wsstest.override { stdenv = pkgs.clangStdenv; };
 
       wsstest-dev = pkgs.mkShell {
         packages = wsstest.buildInputs ++ [
@@ -39,7 +40,7 @@
       };
 
       apps = appOutputs {
-        inherit wsstest treefmt;
+        inherit wsstest wsstest-clang treefmt;
         default = wsstest;
       };
 
@@ -51,7 +52,7 @@
       formatter = treefmt;
 
       packages = {
-        inherit wsstest;
+        inherit wsstest wsstest-clang;
         default = wsstest;
       };
     };
