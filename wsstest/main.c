@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 200112L
+
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -94,9 +96,11 @@ static int window_check(xcb_connection_t *connection,
 }
 
 static int screensaver(xcb_window_t window, char *screensaver_path) {
-  pid_t screensaver_pid = 0;
   enum { window_id_len = sizeof(xcb_window_t) * 2 + 3 };
   char window_id_string[window_id_len] = {0};
+  pid_t screensaver_pid = 0;
+
+  snprintf(window_id_string, window_id_len, "0x%" PRIx32, window);
 
   screensaver_pid = 1;
   /* screensaver_pid = fork(); */
@@ -105,7 +109,6 @@ static int screensaver(xcb_window_t window, char *screensaver_path) {
     return -1;
   }
   if (screensaver_pid == 0) {
-    snprintf(window_id_string, window_id_len, "0x%" PRIx32, window);
     setenv("XSCREENSAVER_WINDOW", window_id_string, 1);
     execl(screensaver_path, screensaver_path, "-root", NULL);
     perror("execl");
