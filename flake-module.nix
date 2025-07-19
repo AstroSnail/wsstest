@@ -21,8 +21,8 @@
         packages = wsstest.buildInputs ++ [
           pkgs.statix
           pkgs.valgrind
-          pkgs.xscreensaver
         ];
+        env.HACKS = "${pkgs.xscreensaver}/libexec/xscreensaver";
         shellHook = perSystem.config.pre-commit.installationScript;
       };
 

@@ -1,8 +1,11 @@
-#define _POSIX_C_SOURCE 200112L
+#define _POSIX_C_SOURCE 200809L
 
 #include <inttypes.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include <xcb/xcb.h>
@@ -67,8 +70,9 @@ static void window_request(xcb_connection_t *connection, xcb_screen_t *screen,
   window = xcb_generate_id(connection);
 
   cookiestring[0] = xcb_create_window_checked(
-      connection, XCB_COPY_FROM_PARENT, window, screen->root, 0, 0, 400, 400,
-      10, XCB_WINDOW_CLASS_INPUT_OUTPUT, screen->root_visual, 0, NULL);
+      connection, XCB_COPY_FROM_PARENT, window, screen->root, 0, 0,
+      screen->width_in_pixels, screen->height_in_pixels, 0,
+      XCB_WINDOW_CLASS_INPUT_OUTPUT, screen->root_visual, 0, NULL);
 
   cookiestring[1] = xcb_map_window_checked(connection, window);
 
@@ -99,23 +103,55 @@ static int screensaver(xcb_window_t window, char *screensaver_path) {
   enum { window_id_len = sizeof(xcb_window_t) * 2 + 3 };
   char window_id_string[window_id_len] = {0};
   pid_t screensaver_pid = 0;
+  long error = 0; /* compatible with int and pid_t */
+  int screensaver_status = 0;
+  char *signal_desc = NULL;
 
   snprintf(window_id_string, window_id_len, "0x%" PRIx32, window);
 
-  screensaver_pid = 1;
-  /* screensaver_pid = fork(); */
+  screensaver_pid = fork();
   if (screensaver_pid < 0) {
     perror("fork");
     return -1;
   }
+
   if (screensaver_pid == 0) {
     setenv("XSCREENSAVER_WINDOW", window_id_string, 1);
-    execl(screensaver_path, screensaver_path, "-root", NULL);
+    execl(screensaver_path, screensaver_path, "--root", NULL);
     perror("execl");
     return -1;
   }
 
   sleep(5);
+
+  error = kill(screensaver_pid, SIGTERM);
+  /* zombie processes count as existing */
+  if (error != 0) {
+    perror("kill");
+    return -1;
+  }
+
+  error = waitpid(screensaver_pid, &screensaver_status, 0);
+  if (error < 0) {
+    perror("waitpid");
+    return -1;
+  }
+  if (error != screensaver_pid) {
+    fprintf(stderr, "whose child is this? %ld\n", error);
+    return -1;
+  }
+
+  if (WIFEXITED(screensaver_status)) {
+    error = WEXITSTATUS(screensaver_status);
+    fprintf(stdout, "screensaver exited normally: %ld\n", error);
+  }
+
+  if (WIFSIGNALED(screensaver_status)) {
+    error = WTERMSIG(screensaver_status);
+    signal_desc = strsignal(error);
+    fprintf(stdout, "screensaver exited by an uncaught signal: %ld %s\n", error,
+            signal_desc);
+  }
 
   return 0;
 }
