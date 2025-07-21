@@ -8,7 +8,7 @@
 
     treefmt.programs.clang-format.enable = true;
 
-    #treefmt.programs.rustfmt.enable = true;
-    #treefmt.programs.rustfmt.edition = config.cargo.package.edition;
+    # treefmt.programs.rustfmt.enable = true;
+    # treefmt.programs.rustfmt.edition = config.cargo.package.edition;
   };
 }
