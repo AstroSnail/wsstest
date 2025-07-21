@@ -99,16 +99,12 @@ static int window_check(xcb_connection_t *connection,
   return 0;
 }
 
-static int screensaver(xcb_window_t window, const char *screensaver_path) {
+static int screensaver_launch(xcb_window_t window, const char *screensaver_path,
+                              pid_t *out_screensaver_pid) {
+  pid_t screensaver_pid = 0;
+
   enum { window_id_len = sizeof(xcb_window_t) * 2 + 3 };
   char window_id_string[window_id_len] = {0};
-  pid_t screensaver_pid = 0;
-  int error = 0;
-  long error2 = 0; /* pid_t fits in a signed long */
-  int screensaver_status = 0;
-  const char *signal_desc = NULL;
-
-  snprintf(window_id_string, window_id_len, "0x%" PRIx32, window);
 
   screensaver_pid = fork();
   if (screensaver_pid < 0) {
@@ -116,29 +112,40 @@ static int screensaver(xcb_window_t window, const char *screensaver_path) {
     return -1;
   }
 
-  if (screensaver_pid == 0) {
-    setenv("XSCREENSAVER_WINDOW", window_id_string, 1);
-    execl(screensaver_path, screensaver_path, "--root", NULL);
-    perror("execl");
-    return -1;
+  if (screensaver_pid > 0) {
+    *out_screensaver_pid = screensaver_pid;
+    return 0;
   }
 
-  sleep(5);
+  snprintf(window_id_string, window_id_len, "0x%" PRIx32, window);
+  setenv("XSCREENSAVER_WINDOW", window_id_string, 1);
+
+  /* TODO: any cleanup before exec'ing the screensaver? */
+  execl(screensaver_path, screensaver_path, "--root", NULL);
+  perror("execl");
+  return -1;
+}
+
+static int screensaver_kill(pid_t screensaver_pid) {
+  int error = 0;
+  long child_pid = 0; /* pid_t fits in a signed long */
+  int screensaver_status = 0;
+  const char *signal_desc = NULL;
 
   error = kill(screensaver_pid, SIGTERM);
-  /* zombie processes count as existing */
+  /* zombie processes count as existing, no need to exempt ESRCH */
   if (error != 0) {
     perror("kill");
     return -1;
   }
 
-  error2 = waitpid(screensaver_pid, &screensaver_status, 0);
-  if (error2 < 0) {
+  child_pid = waitpid(screensaver_pid, &screensaver_status, 0);
+  if (child_pid < 0) {
     perror("waitpid");
     return -1;
   }
-  if (error2 != screensaver_pid) {
-    fprintf(stderr, "whose child is this? %ld\n", error2);
+  if (child_pid != screensaver_pid) {
+    fprintf(stderr, "whose child is this? %ld\n", child_pid);
     return -1;
   }
 
@@ -164,6 +171,7 @@ int main(int argc, char **argv) {
   xcb_screen_t *screen_preferred = NULL;
   xcb_window_t window = 0;
   xcb_void_cookie_t cookies[2] = {0};
+  pid_t screensaver_pid = 0;
 
   if (argc == 2) {
     screensaver_path = argv[1];
@@ -190,7 +198,14 @@ int main(int argc, char **argv) {
     return EXIT_FAILURE;
   }
 
-  error = screensaver(window, screensaver_path);
+  error = screensaver_launch(window, screensaver_path, &screensaver_pid);
+  if (error != 0) {
+    return EXIT_FAILURE;
+  }
+
+  sleep(5);
+
+  error = screensaver_kill(screensaver_pid);
   if (error != 0) {
     return EXIT_FAILURE;
   }
