@@ -63,7 +63,7 @@ static int connect(xcb_connection_t **out_connection,
   return 0;
 }
 
-static xcb_window_t window_create(xcb_connection_t *connection,
+static xcb_window_t create_window(xcb_connection_t *connection,
                                   const xcb_screen_t *screen) {
   xcb_window_t window = 0;
 
@@ -77,7 +77,7 @@ static xcb_window_t window_create(xcb_connection_t *connection,
   return window;
 }
 
-static pid_t screensaver_launch(xcb_window_t window,
+static pid_t launch_screensaver(xcb_window_t window,
                                 const char *screensaver_path) {
   pid_t screensaver_pid = 0;
   enum { window_id_len = sizeof(xcb_window_t) * 2 + 3 };
@@ -102,7 +102,7 @@ static pid_t screensaver_launch(xcb_window_t window,
   return -1;
 }
 
-static int screensaver_kill(pid_t screensaver_pid) {
+static int kill_screensaver(pid_t screensaver_pid) {
   int error = 0;
   long child_pid = 0; /* pid_t fits in a signed long */
   int screensaver_status = 0;
@@ -140,7 +140,7 @@ static int screensaver_kill(pid_t screensaver_pid) {
   return 0;
 }
 
-static int event_handle(xcb_connection_t *connection) {
+static int handle_event(xcb_connection_t *connection) {
   CLEANUP(event) xcb_generic_event_t *event = NULL;
   uint8_t event_type = 0;
   const char *event_label = NULL;
@@ -157,7 +157,7 @@ static int event_handle(xcb_connection_t *connection) {
   return 1;
 }
 
-static int connection_poll(xcb_connection_t *connection) {
+static int poll_connection(xcb_connection_t *connection) {
   int connection_error = 0;
   struct pollfd connection_poll = {0};
   int poll_ready = 0;
@@ -204,7 +204,7 @@ int main(int argc, char **argv) {
     return EXIT_FAILURE;
   }
 
-  window = window_create(connection, screen_preferred);
+  window = create_window(connection, screen_preferred);
 
   error = xcb_flush(connection);
   if (error <= 0) {
@@ -213,7 +213,7 @@ int main(int argc, char **argv) {
   }
   /* unsure what positive error values mean, besides success */
 
-  screensaver_pid = screensaver_launch(window, screensaver_path);
+  screensaver_pid = launch_screensaver(window, screensaver_path);
   if (screensaver_pid <= 0) {
     return EXIT_FAILURE;
   }
@@ -221,19 +221,19 @@ int main(int argc, char **argv) {
   /* xcb_wait_for_event can't timeout, use poll instead */
   /* make sure to handle all pending events before polling the connection */
   while (poll_ready > 0) {
-    error = event_handle(connection);
+    error = handle_event(connection);
     if (error < 0) {
       return EXIT_FAILURE;
     }
     if (error == 0) {
-      poll_ready = connection_poll(connection);
+      poll_ready = poll_connection(connection);
     }
   }
   if (poll_ready < 0) {
     return EXIT_FAILURE;
   }
 
-  error = screensaver_kill(screensaver_pid);
+  error = kill_screensaver(screensaver_pid);
   if (error != 0) {
     return EXIT_FAILURE;
   }
