@@ -10,7 +10,7 @@
 #include <unistd.h>
 
 #include <xcb/xcb.h>
-#include <xcb/xcb_event.h>
+#include <xcb/xcb_util.h>
 
 #define CLEANUP(how) __attribute__((cleanup(cleanup_##how)))
 
@@ -35,9 +35,6 @@ static int connect(xcb_connection_t **out_connection,
 
   int screen_preferred_n = 0;
   int connection_error = 0;
-  const xcb_setup_t *setup = NULL;
-  xcb_screen_iterator_t screen_iter = {0};
-  int screen_i = 0;
 
   connection = xcb_connect(NULL, &screen_preferred_n);
   connection_error = xcb_connection_has_error(connection);
@@ -46,17 +43,7 @@ static int connect(xcb_connection_t **out_connection,
     return -1;
   }
 
-  setup = xcb_get_setup(connection);
-
-  screen_iter = xcb_setup_roots_iterator(setup);
-  screen_preferred = screen_iter.data;
-  for (screen_i = 0; screen_iter.rem > 0;
-       screen_i++, xcb_screen_next(&screen_iter)) {
-    if (screen_i == screen_preferred_n) {
-      screen_preferred = screen_iter.data;
-      break;
-    }
-  }
+  screen_preferred = xcb_aux_get_screen(connection, screen_preferred_n);
 
   *out_connection = connection;
   *out_screen_preferred = screen_preferred;
