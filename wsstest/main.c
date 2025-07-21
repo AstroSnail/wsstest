@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include <inttypes.h>
+#include <poll.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,6 +10,7 @@
 #include <unistd.h>
 
 #include <xcb/xcb.h>
+#include <xcb/xcb_event.h>
 
 #define CLEANUP(how) __attribute__((cleanup(cleanup_##how)))
 
@@ -19,10 +21,10 @@ static void cleanup_connection(xcb_connection_t **connection) {
   }
 }
 
-static void cleanup_generic_error(xcb_generic_error_t **generic_error) {
-  if (*generic_error != NULL) {
-    free(*generic_error);
-    *generic_error = NULL;
+static void cleanup_event(xcb_generic_event_t **event) {
+  if (*event != NULL) {
+    free(*event);
+    *event = NULL;
   }
 }
 
@@ -61,48 +63,23 @@ static int connect(xcb_connection_t **out_connection,
   return 0;
 }
 
-static void window_request(xcb_connection_t *connection,
-                           const xcb_screen_t *screen, xcb_window_t *out_window,
-                           xcb_void_cookie_t (*cookies)[2]) {
+static xcb_window_t window_create(xcb_connection_t *connection,
+                                  const xcb_screen_t *screen) {
   xcb_window_t window = 0;
-  xcb_void_cookie_t *cookiestring = *cookies;
 
   window = xcb_generate_id(connection);
+  xcb_create_window(connection, XCB_COPY_FROM_PARENT, window, screen->root, 0,
+                    0, screen->width_in_pixels, screen->height_in_pixels, 0,
+                    XCB_WINDOW_CLASS_INPUT_OUTPUT, screen->root_visual, 0,
+                    NULL);
+  xcb_map_window(connection, window);
 
-  cookiestring[0] = xcb_create_window_checked(
-      connection, XCB_COPY_FROM_PARENT, window, screen->root, 0, 0,
-      screen->width_in_pixels, screen->height_in_pixels, 0,
-      XCB_WINDOW_CLASS_INPUT_OUTPUT, screen->root_visual, 0, NULL);
-
-  cookiestring[1] = xcb_map_window_checked(connection, window);
-
-  *out_window = window;
+  return window;
 }
 
-static int window_check(xcb_connection_t *connection,
-                        const xcb_void_cookie_t (*cookies)[2]) {
-  const xcb_void_cookie_t *cookiestring = *cookies;
-  CLEANUP(generic_error) xcb_generic_error_t *generic_error = NULL;
-
-  generic_error = xcb_request_check(connection, cookiestring[0]);
-  if (generic_error != NULL) {
-    fprintf(stderr, "xcb_create_window_checked\n");
-    return -1;
-  }
-
-  generic_error = xcb_request_check(connection, cookiestring[1]);
-  if (generic_error != NULL) {
-    fprintf(stderr, "xcb_map_window_checked\n");
-    return -1;
-  }
-
-  return 0;
-}
-
-static int screensaver_launch(xcb_window_t window, const char *screensaver_path,
-                              pid_t *out_screensaver_pid) {
+static pid_t screensaver_launch(xcb_window_t window,
+                                const char *screensaver_path) {
   pid_t screensaver_pid = 0;
-
   enum { window_id_len = sizeof(xcb_window_t) * 2 + 3 };
   char window_id_string[window_id_len] = {0};
 
@@ -113,8 +90,7 @@ static int screensaver_launch(xcb_window_t window, const char *screensaver_path,
   }
 
   if (screensaver_pid > 0) {
-    *out_screensaver_pid = screensaver_pid;
-    return 0;
+    return screensaver_pid;
   }
 
   snprintf(window_id_string, window_id_len, "0x%" PRIx32, window);
@@ -145,23 +121,66 @@ static int screensaver_kill(pid_t screensaver_pid) {
     return -1;
   }
   if (child_pid != screensaver_pid) {
-    fprintf(stderr, "whose child is this? %ld\n", child_pid);
+    fprintf(stderr, "Whose child is this? %ld\n", child_pid);
     return -1;
   }
 
   if (WIFEXITED(screensaver_status)) {
     error = WEXITSTATUS(screensaver_status);
-    fprintf(stdout, "screensaver exited normally: %d\n", error);
+    fprintf(stdout, "Screensaver exited normally: %d\n", error);
   }
 
   if (WIFSIGNALED(screensaver_status)) {
     error = WTERMSIG(screensaver_status);
     signal_desc = strsignal(error);
-    fprintf(stdout, "screensaver exited by an uncaught signal: %d %s\n", error,
+    fprintf(stdout, "Screensaver exited by an uncaught signal: %d %s\n", error,
             signal_desc);
   }
 
   return 0;
+}
+
+static int event_handle(xcb_connection_t *connection) {
+  CLEANUP(event) xcb_generic_event_t *event = NULL;
+  uint8_t event_type = 0;
+  const char *event_label = NULL;
+
+  event = xcb_poll_for_event(connection);
+  if (event == NULL) {
+    return 0;
+  }
+
+  event_type = XCB_EVENT_RESPONSE_TYPE(event);
+  event_label = xcb_event_get_label(event_type);
+  fprintf(stdout, "Unknown event: %d %s\n", (int)event_type, event_label);
+
+  return 1;
+}
+
+static int connection_poll(xcb_connection_t *connection) {
+  int connection_error = 0;
+  struct pollfd connection_poll = {0};
+  int poll_ready = 0;
+
+  connection_error = xcb_connection_has_error(connection);
+  if (connection_error == XCB_CONN_ERROR) {
+    /* server closed the connection, perhaps the user closed the window */
+    return 0;
+  }
+  if (connection_error != 0) {
+    fprintf(stderr, "xcb_connection_has_error: %d\n", connection_error);
+    return -1;
+  }
+
+  connection_poll.fd = xcb_get_file_descriptor(connection);
+  connection_poll.events = POLLIN;
+
+  poll_ready = poll(&connection_poll, 1, 5000);
+  if (poll_ready < 0) {
+    perror("poll");
+  }
+
+  return poll_ready;
 }
 
 int main(int argc, char **argv) {
@@ -170,8 +189,8 @@ int main(int argc, char **argv) {
   CLEANUP(connection) xcb_connection_t *connection = NULL;
   xcb_screen_t *screen_preferred = NULL;
   xcb_window_t window = 0;
-  xcb_void_cookie_t cookies[2] = {0};
   pid_t screensaver_pid = 0;
+  int poll_ready = 1; /* enter the loop */
 
   if (argc == 2) {
     screensaver_path = argv[1];
@@ -185,25 +204,34 @@ int main(int argc, char **argv) {
     return EXIT_FAILURE;
   }
 
-  window_request(connection, screen_preferred, &window, &cookies);
+  window = window_create(connection, screen_preferred);
 
   error = xcb_flush(connection);
   if (error <= 0) {
     fprintf(stderr, "xcb_flush: %d\n", -error);
     return EXIT_FAILURE;
   }
+  /* unsure what positive error values mean, besides success */
 
-  error = window_check(connection, &cookies);
-  if (error != 0) {
+  screensaver_pid = screensaver_launch(window, screensaver_path);
+  if (screensaver_pid <= 0) {
     return EXIT_FAILURE;
   }
 
-  error = screensaver_launch(window, screensaver_path, &screensaver_pid);
-  if (error != 0) {
+  /* xcb_wait_for_event can't timeout, use poll instead */
+  /* make sure to handle all pending events before polling the connection */
+  while (poll_ready > 0) {
+    error = event_handle(connection);
+    if (error < 0) {
+      return EXIT_FAILURE;
+    }
+    if (error == 0) {
+      poll_ready = connection_poll(connection);
+    }
+  }
+  if (poll_ready < 0) {
     return EXIT_FAILURE;
   }
-
-  sleep(5);
 
   error = screensaver_kill(screensaver_pid);
   if (error != 0) {

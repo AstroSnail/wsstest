@@ -13,7 +13,10 @@ stdenv.mkDerivation {
   inherit pname version;
   src = ./wsstest;
   nativeBuildInputs = [ cmake ];
-  buildInputs = [ xorg.libxcb ];
+  buildInputs = [
+    xorg.libxcb
+    xorg.xcbutil
+  ];
   meta.description = "wayland screensaver test";
   meta.mainProgram = pname;
 }

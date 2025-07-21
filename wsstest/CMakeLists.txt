@@ -1,30 +1,21 @@
-cmake_minimum_required(VERSION 3.21 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.10 FATAL_ERROR)
 
 project(wsstest VERSION 0.1)
 
+set(CMAKE_C_STANDARD 90)
 set(CMAKE_C_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 add_executable(wsstest main.c)
-# require n3054 § 6.7.3/10 const array type semantics
-# (n3054 is just the c23 draft i have at hand)
-# would really really really like a way to disable only that warning
-# (it only comes bundled in -Wpedantic [<=c11] and -Wc11-c23-compat [>=c23])
-# project is otherwise pmuch c90 compatible with posix.1-2008 libraries
-# (string.h strsignal() in particular)
-target_compile_features(wsstest PRIVATE c_std_23)
+# doesn't add -std=c90
+# target_compile_features(wsstest PRIVATE c_std_90)
 target_compile_options(wsstest PRIVATE -Wall -Wextra -Wpedantic -Wc++-compat)
-if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
-	target_compile_options(wsstest PRIVATE
-		-Wc90-c99-compat -Wc99-c11-compat -Wc11-c23-compat
-	)
-elseif (CMAKE_C_COMPILER_ID STREQUAL "Clang")
-	target_compile_options(wsstest PRIVATE
-		-Wc99-compat -Wc99-extensions -Wpre-c11-compat -Wc11-extensions
-		-Wpre-c23-compat -Wc23-compat -Wc23-extensions
-	)
-endif()
-target_link_libraries(wsstest xcb)
+# if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
+# 	target_compile_options(wsstest PRIVATE ...)
+# elseif (CMAKE_C_COMPILER_ID STREQUAL "Clang")
+# 	target_compile_options(wsstest PRIVATE ...)
+# endif()
+target_link_libraries(wsstest xcb xcb-util)
 install(TARGETS wsstest)
 
 install(FILES build/compile_commands.json DESTINATION .)
