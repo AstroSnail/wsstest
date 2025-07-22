@@ -215,12 +215,11 @@ int main(int argc, char **argv) {
   CLEANUP(screensaver) pid_t screensaver_pid = 0;
   int poll_ready = 0;
 
-  if (argc == 2) {
-    screensaver_path = argv[1];
-  } else {
-    fprintf(stderr, "Missing screensaver\n");
+  if (argc != 2) {
+    fprintf(stderr, "Usage: %s <path>\n", argv[0]);
     return EXIT_FAILURE;
   }
+  screensaver_path = argv[1];
 
   error = connect(&connection, &screen_preferred);
   if (error != 0) {
