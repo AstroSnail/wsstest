@@ -6,6 +6,8 @@ SPDX-License-Identifier: Apache-2.0
 
 # Wayland ScreenSaver Test
 
+Wayland screen locker that displays XScreenSaver hacks.
+
 ## The context
 
 ### XScreenSaver

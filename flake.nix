@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 {
-  description = "wayland screensaver test";
+  description = "Wayland screen locker that displays XScreenSaver hacks";
 
   inputs.nixpkgs.url = "nixpkgs";
 
