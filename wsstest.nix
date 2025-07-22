@@ -32,9 +32,11 @@ stdenv.mkDerivation {
     xorg.xcbutil
   ];
 
-  meta.description = "Wayland screen locker that displays XScreenSaver hacks";
-  meta.license = lib.licenses.asl20;
-  meta.maintainers = [ AstroSnail ];
-  meta.mainProgram = "wsstest";
-  meta.platforms = lib.platforms.all;
+  meta = {
+    description = "Wayland screen locker that displays XScreenSaver hacks";
+    license = lib.licenses.asl20;
+    maintainers = [ AstroSnail ];
+    mainProgram = "wsstest";
+    platforms = lib.platforms.all;
+  };
 }
