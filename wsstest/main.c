@@ -61,6 +61,8 @@ static xcb_window_t create_window(xcb_connection_t *connection,
                     NULL);
   xcb_map_window(connection, window);
 
+  fprintf(stdout, "Window: 0x%" PRIx32 "\n", window);
+
   return window;
 }
 
@@ -131,6 +133,9 @@ static int handle_event(xcb_connection_t *connection) {
   CLEANUP(event) xcb_generic_event_t *event = NULL;
   uint8_t event_type = 0;
   const char *event_label = NULL;
+  xcb_generic_error_t *event_error = NULL;
+  const char *event_error_label = NULL;
+  const char *event_request_label = NULL;
 
   event = xcb_poll_for_event(connection);
   if (event == NULL) {
@@ -139,7 +144,32 @@ static int handle_event(xcb_connection_t *connection) {
 
   event_type = XCB_EVENT_RESPONSE_TYPE(event);
   event_label = xcb_event_get_label(event_type);
-  fprintf(stdout, "Unknown event: %d %s\n", (int)event_type, event_label);
+  fprintf(stdout, "X Event: %" PRId8 " (%s)\n", event_type, event_label);
+
+  switch (event_type) {
+  case 0: /* X_Error */
+    /* ideally i could just use XmuPrintDefaultErrorMessage, but that wants an
+     * Xlib Display while i only have an xcb_connection_t */
+    event_error = (xcb_generic_error_t *)event;
+    event_error_label = xcb_event_get_error_label(event_error->error_code);
+    event_request_label = xcb_event_get_request_label(event_error->major_code);
+    fprintf(stdout, "  Error code:    %" PRId8 " (%s)\n",
+            event_error->error_code, event_error_label);
+    fprintf(stdout, "  Major opcode:  %" PRId8 " (%s)\n",
+            event_error->major_code, event_request_label);
+    fprintf(stdout, "  Resource ID:   0x%" PRIx32 "\n",
+            event_error->resource_id);
+    /* Xlib also shows the "current" serial, but xcb doesn't seem to expose
+     * this for us at all */
+    fprintf(stdout, "  Serial number: %" PRId16 "\n", event_error->sequence);
+    /* break the event loop on any X_Error. Xlib makes an exception for
+     * error_code 17 BadImplementation (server does not implement operation) but
+     * i don't care */
+    return -1;
+  default:
+    fprintf(stdout, "  Unhandled\n");
+    break;
+  }
 
   return 1;
 }
@@ -210,7 +240,7 @@ int main(int argc, char **argv) {
   while (poll_ready > 0) {
     error = handle_event(connection);
     if (error < 0) {
-      return EXIT_FAILURE;
+      break;
     }
     if (error == 0) {
       poll_ready = poll_connection(connection);
