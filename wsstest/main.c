@@ -213,7 +213,7 @@ int main(int argc, char **argv) {
   xcb_screen_t *screen_preferred = NULL;
   xcb_window_t window = 0;
   CLEANUP(screensaver) pid_t screensaver_pid = 0;
-  int poll_ready = 1; /* enter the loop */
+  int poll_ready = 0;
 
   if (argc == 2) {
     screensaver_path = argv[1];
@@ -243,6 +243,7 @@ int main(int argc, char **argv) {
 
   /* xcb_wait_for_event can't timeout, use poll instead */
   /* make sure to handle all pending events before polling the connection */
+  poll_ready = 1;
   while (poll_ready > 0) {
     error = handle_event(connection);
     if (error < 0) {
