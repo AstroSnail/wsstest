@@ -14,20 +14,6 @@
 
 #define CLEANUP(how) __attribute__((cleanup(cleanup_##how)))
 
-static void cleanup_connection(xcb_connection_t **connection) {
-  if (*connection != NULL) {
-    xcb_disconnect(*connection);
-    *connection = NULL;
-  }
-}
-
-static void cleanup_event(xcb_generic_event_t **event) {
-  if (*event != NULL) {
-    free(*event);
-    *event = NULL;
-  }
-}
-
 static int connect(xcb_connection_t **out_connection,
                    xcb_screen_t **out_screen_preferred) {
   xcb_connection_t *connection = NULL;
@@ -48,6 +34,14 @@ static int connect(xcb_connection_t **out_connection,
   *out_connection = connection;
   *out_screen_preferred = screen_preferred;
   return 0;
+}
+
+static void cleanup_connection(xcb_connection_t **connection) {
+  if (*connection == NULL) {
+    return;
+  }
+  xcb_disconnect(*connection);
+  *connection = NULL;
 }
 
 static xcb_window_t create_window(xcb_connection_t *connection,
@@ -91,27 +85,31 @@ static pid_t launch_screensaver(xcb_window_t window,
   return -1;
 }
 
-static int kill_screensaver(pid_t screensaver_pid) {
+static void cleanup_screensaver(pid_t *screensaver_pid) {
   int error = 0;
   long child_pid = 0; /* pid_t fits in a signed long */
   int screensaver_status = 0;
   const char *signal_desc = NULL;
 
-  error = kill(screensaver_pid, SIGTERM);
+  if (*screensaver_pid <= 0) {
+    return;
+  }
+
+  error = kill(*screensaver_pid, SIGTERM);
   /* zombie processes count as existing, no need to exempt ESRCH */
   if (error != 0) {
     perror("kill");
-    return -1;
+    return;
   }
 
-  child_pid = waitpid(screensaver_pid, &screensaver_status, 0);
+  child_pid = waitpid(*screensaver_pid, &screensaver_status, 0);
   if (child_pid < 0) {
     perror("waitpid");
-    return -1;
+    return;
   }
-  if (child_pid != screensaver_pid) {
+  if (child_pid != *screensaver_pid) {
     fprintf(stderr, "Whose child is this? %ld\n", child_pid);
-    return -1;
+    return;
   }
 
   if (WIFEXITED(screensaver_status)) {
@@ -126,7 +124,15 @@ static int kill_screensaver(pid_t screensaver_pid) {
             signal_desc);
   }
 
-  return 0;
+  *screensaver_pid = 0;
+}
+
+static void cleanup_event(xcb_generic_event_t **event) {
+  if (*event == NULL) {
+    return;
+  }
+  free(*event);
+  *event = NULL;
 }
 
 static int handle_event(xcb_connection_t *connection) {
@@ -206,7 +212,7 @@ int main(int argc, char **argv) {
   CLEANUP(connection) xcb_connection_t *connection = NULL;
   xcb_screen_t *screen_preferred = NULL;
   xcb_window_t window = 0;
-  pid_t screensaver_pid = 0;
+  CLEANUP(screensaver) pid_t screensaver_pid = 0;
   int poll_ready = 1; /* enter the loop */
 
   if (argc == 2) {
@@ -247,11 +253,6 @@ int main(int argc, char **argv) {
     }
   }
   if (poll_ready < 0) {
-    return EXIT_FAILURE;
-  }
-
-  error = kill_screensaver(screensaver_pid);
-  if (error != 0) {
     return EXIT_FAILURE;
   }
 
