@@ -10,6 +10,8 @@
   perSystem =
     # { pkgs, ... }:
     {
+      pre-commit.settings.hooks.reuse.enable = true;
+
       pre-commit.settings.hooks.deadnix.enable = true;
       pre-commit.settings.hooks.nixfmt-rfc-style.enable = true;
       pre-commit.settings.hooks.statix.enable = true;
