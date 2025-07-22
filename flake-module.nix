@@ -6,8 +6,6 @@
 
 {
   imports = [
-    "${inputs.nixpkgs}/nixos/modules/misc/lib.nix"
-    ./lib.nix
     ./overlays.nix
     ./git-hooks.nix
     ./treefmt.nix
@@ -32,7 +30,6 @@
         shellHook = perSystem.config.pre-commit.installationScript;
       };
 
-      inherit (config.lib.util) appOutputs;
       inherit (config.flake) overlays;
       treefmt = perSystem.config.treefmt.build.wrapper;
 
@@ -42,11 +39,6 @@
         inherit system;
         # config.allowUnfree = true;
         overlays = [ overlays.default ];
-      };
-
-      apps = appOutputs {
-        inherit wsstest wsstest-clang treefmt;
-        default = wsstest;
       };
 
       devShells = {
