@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: 2025 AstroSnail <astrosnail@protonmail.com>
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 #define _POSIX_C_SOURCE 200809L
 
 #include <inttypes.h>

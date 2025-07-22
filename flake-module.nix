@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2025 AstroSnail <astrosnail@protonmail.com>
+#
+# SPDX-License-Identifier: Apache-2.0
+
 { config, inputs, ... }:
 
 {
@@ -20,6 +24,7 @@
 
       wsstest-dev = pkgs.mkShell {
         packages = wsstest.buildInputs ++ [
+          pkgs.reuse
           pkgs.statix
           pkgs.valgrind
         ];

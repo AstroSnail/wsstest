@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2025 AstroSnail <astrosnail@protonmail.com>
+#
+# SPDX-License-Identifier: Apache-2.0
+
 cmake_minimum_required(VERSION 3.10 FATAL_ERROR)
 
 project(wsstest VERSION 0.1)
