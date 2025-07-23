@@ -19,7 +19,7 @@ target_compile_options(wsstest PRIVATE -Wall -Wextra -Wpedantic -Wc++-compat)
 # elseif (CMAKE_C_COMPILER_ID STREQUAL "Clang")
 # 	target_compile_options(wsstest PRIVATE ...)
 # endif()
-target_link_libraries(wsstest xcb xcb-util)
+target_link_libraries(wsstest wayland-client xcb xcb-util)
 install(TARGETS wsstest)
 
 install(FILES build/compile_commands.json DESTINATION .)

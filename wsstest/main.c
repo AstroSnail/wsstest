@@ -15,51 +15,56 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+/* the only c99 feature used in the header seems to be inline */
+#define inline
+#include <wayland-client.h>
+#undef inline
+
 #include <xcb/xcb.h>
 #include <xcb/xcb_util.h>
 
 #define CLEANUP(how) __attribute__((cleanup(cleanup_##how)))
 
-static int connect(xcb_connection_t **out_connection,
-                   xcb_screen_t **out_screen_preferred) {
-  xcb_connection_t *connection = NULL;
+static int connect_x11(xcb_connection_t **out_connection_x11,
+                       xcb_screen_t **out_screen_preferred) {
+  xcb_connection_t *connection_x11 = NULL;
   xcb_screen_t *screen_preferred = NULL;
 
   int screen_preferred_n = 0;
   int connection_error = 0;
 
-  connection = xcb_connect(NULL, &screen_preferred_n);
-  connection_error = xcb_connection_has_error(connection);
+  connection_x11 = xcb_connect(NULL, &screen_preferred_n);
+  connection_error = xcb_connection_has_error(connection_x11);
   if (connection_error != 0) {
     fprintf(stderr, "xcb_connection_has_error: %d\n", connection_error);
     return -1;
   }
 
-  screen_preferred = xcb_aux_get_screen(connection, screen_preferred_n);
+  screen_preferred = xcb_aux_get_screen(connection_x11, screen_preferred_n);
 
-  *out_connection = connection;
+  *out_connection_x11 = connection_x11;
   *out_screen_preferred = screen_preferred;
   return 0;
 }
 
-static void cleanup_connection(xcb_connection_t **connection) {
-  if (*connection == NULL) {
+static void cleanup_connection_x11(xcb_connection_t **connection_x11) {
+  if (*connection_x11 == NULL) {
     return;
   }
-  xcb_disconnect(*connection);
-  *connection = NULL;
+  xcb_disconnect(*connection_x11);
+  *connection_x11 = NULL;
 }
 
-static xcb_window_t create_window(xcb_connection_t *connection,
+static xcb_window_t create_window(xcb_connection_t *connection_x11,
                                   const xcb_screen_t *screen) {
   xcb_window_t window = 0;
 
-  window = xcb_generate_id(connection);
-  xcb_create_window(connection, XCB_COPY_FROM_PARENT, window, screen->root, 0,
-                    0, screen->width_in_pixels, screen->height_in_pixels, 0,
+  window = xcb_generate_id(connection_x11);
+  xcb_create_window(connection_x11, XCB_COPY_FROM_PARENT, window, screen->root,
+                    0, 0, screen->width_in_pixels, screen->height_in_pixels, 0,
                     XCB_WINDOW_CLASS_INPUT_OUTPUT, screen->root_visual, 0,
                     NULL);
-  xcb_map_window(connection, window);
+  xcb_map_window(connection_x11, window);
 
   fprintf(stdout, "Window: 0x%" PRIx32 "\n", window);
 
@@ -141,7 +146,7 @@ static void cleanup_event(xcb_generic_event_t **event) {
   *event = NULL;
 }
 
-static int handle_event(xcb_connection_t *connection) {
+static int handle_event(xcb_connection_t *connection_x11) {
   CLEANUP(event) xcb_generic_event_t *event = NULL;
   uint8_t event_type = 0;
   const char *event_label = NULL;
@@ -149,7 +154,7 @@ static int handle_event(xcb_connection_t *connection) {
   const char *event_error_label = NULL;
   const char *event_request_label = NULL;
 
-  event = xcb_poll_for_event(connection);
+  event = xcb_poll_for_event(connection_x11);
   if (event == NULL) {
     return 0;
   }
@@ -186,12 +191,12 @@ static int handle_event(xcb_connection_t *connection) {
   return 1;
 }
 
-static int poll_connection(xcb_connection_t *connection) {
+static int poll_connection_x11(xcb_connection_t *connection_x11) {
   int connection_error = 0;
   struct pollfd connection_poll = {0};
   int poll_ready = 0;
 
-  connection_error = xcb_connection_has_error(connection);
+  connection_error = xcb_connection_has_error(connection_x11);
   if (connection_error == XCB_CONN_ERROR) {
     /* server closed the connection, perhaps the user closed the window */
     return 0;
@@ -201,7 +206,7 @@ static int poll_connection(xcb_connection_t *connection) {
     return -1;
   }
 
-  connection_poll.fd = xcb_get_file_descriptor(connection);
+  connection_poll.fd = xcb_get_file_descriptor(connection_x11);
   connection_poll.events = POLLIN;
 
   poll_ready = poll(&connection_poll, 1, 5000);
@@ -212,10 +217,19 @@ static int poll_connection(xcb_connection_t *connection) {
   return poll_ready;
 }
 
+static void cleanup_connection_wl(struct wl_display **connection_wl) {
+  if (*connection_wl == NULL) {
+    return;
+  }
+  wl_display_disconnect(*connection_wl);
+  *connection_wl = NULL;
+}
+
 int main(int argc, char **argv) {
   const char *screensaver_path = NULL;
+  CLEANUP(connection_wl) struct wl_display *connection_wl = NULL;
   int error = 0;
-  CLEANUP(connection) xcb_connection_t *connection = NULL;
+  CLEANUP(connection_x11) xcb_connection_t *connection_x11 = NULL;
   xcb_screen_t *screen_preferred = NULL;
   xcb_window_t window = 0;
   CLEANUP(screensaver) pid_t screensaver_pid = 0;
@@ -227,14 +241,20 @@ int main(int argc, char **argv) {
   }
   screensaver_path = argv[1];
 
-  error = connect(&connection, &screen_preferred);
+  connection_wl = wl_display_connect(NULL);
+  if (connection_wl == NULL) {
+    perror("wl_display_connect");
+    return EXIT_FAILURE;
+  }
+
+  error = connect_x11(&connection_x11, &screen_preferred);
   if (error != 0) {
     return EXIT_FAILURE;
   }
 
-  window = create_window(connection, screen_preferred);
+  window = create_window(connection_x11, screen_preferred);
 
-  error = xcb_flush(connection);
+  error = xcb_flush(connection_x11);
   if (error <= 0) {
     fprintf(stderr, "xcb_flush: %d\n", -error);
     return EXIT_FAILURE;
@@ -250,12 +270,12 @@ int main(int argc, char **argv) {
   /* make sure to handle all pending events before polling the connection */
   poll_ready = 1;
   while (poll_ready > 0) {
-    error = handle_event(connection);
+    error = handle_event(connection_x11);
     if (error < 0) {
       break;
     }
     if (error == 0) {
-      poll_ready = poll_connection(connection);
+      poll_ready = poll_connection_x11(connection_x11);
     }
   }
   if (poll_ready < 0) {

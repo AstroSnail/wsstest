@@ -6,6 +6,7 @@
   lib,
   stdenv,
   cmake,
+  wayland,
   xorg,
 }:
 
@@ -28,6 +29,7 @@ stdenv.mkDerivation {
   src = ./wsstest;
   nativeBuildInputs = [ cmake ];
   buildInputs = [
+    wayland
     xorg.libxcb
     xorg.xcbutil
   ];
