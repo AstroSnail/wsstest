@@ -66,7 +66,7 @@ static xcb_window_t create_window(xcb_connection_t *connection_x11,
                     NULL);
   xcb_map_window(connection_x11, window);
 
-  fprintf(stdout, "Window: 0x%" PRIx32 "\n", window);
+  fprintf(stderr, "Window: 0x%" PRIx32 "\n", window);
 
   return window;
 }
@@ -151,7 +151,7 @@ static int handle_event(xcb_connection_t *connection_x11) {
 
   event_type = XCB_EVENT_RESPONSE_TYPE(event);
   event_label = xcb_event_get_label(event_type);
-  fprintf(stdout, "X Event: %" PRId8 " (%s)\n", event_type, event_label);
+  fprintf(stderr, "X Event: %" PRId8 " (%s)\n", event_type, event_label);
 
   switch (event_type) {
   case 0: /* X_Error */
@@ -160,21 +160,21 @@ static int handle_event(xcb_connection_t *connection_x11) {
     event_error = (xcb_generic_error_t *)event;
     event_error_label = xcb_event_get_error_label(event_error->error_code);
     event_request_label = xcb_event_get_request_label(event_error->major_code);
-    fprintf(stdout, "  Error code:    %" PRId8 " (%s)\n",
+    fprintf(stderr, "  Error code:    %" PRId8 " (%s)\n",
             event_error->error_code, event_error_label);
-    fprintf(stdout, "  Major opcode:  %" PRId8 " (%s)\n",
+    fprintf(stderr, "  Major opcode:  %" PRId8 " (%s)\n",
             event_error->major_code, event_request_label);
-    fprintf(stdout, "  Resource ID:   0x%" PRIx32 "\n",
+    fprintf(stderr, "  Resource ID:   0x%" PRIx32 "\n",
             event_error->resource_id);
     /* Xlib also shows the "current" serial, but xcb doesn't seem to expose
      * this for us at all */
-    fprintf(stdout, "  Serial number: %" PRId16 "\n", event_error->sequence);
+    fprintf(stderr, "  Serial number: %" PRId16 "\n", event_error->sequence);
     /* break the event loop on any X_Error. Xlib makes an exception for
      * error_code 17 BadImplementation (server does not implement operation) but
      * i don't care */
     return -1;
   default:
-    fprintf(stdout, "  Unhandled\n");
+    fprintf(stderr, "  Unhandled\n");
     break;
   }
 
