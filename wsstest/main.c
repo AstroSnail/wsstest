@@ -98,9 +98,7 @@ static pid_t launch_screensaver(xcb_window_t window,
 
 static void cleanup_screensaver(pid_t *screensaver_pid) {
   int error = 0;
-  long child_pid = 0; /* pid_t fits in a signed long */
-  int screensaver_status = 0;
-  const char *signal_desc = NULL;
+  siginfo_t screensaver_info = {0};
 
   if (*screensaver_pid <= 0) {
     return;
@@ -113,26 +111,18 @@ static void cleanup_screensaver(pid_t *screensaver_pid) {
     return;
   }
 
-  child_pid = waitpid(*screensaver_pid, &screensaver_status, 0);
-  if (child_pid < 0) {
-    perror("waitpid");
-    return;
-  }
-  if (child_pid != *screensaver_pid) {
-    fprintf(stderr, "Whose child is this? %ld\n", child_pid);
+  error = waitid(P_PID, *screensaver_pid, &screensaver_info, WEXITED);
+  if (error != 0) {
+    perror("waitid");
     return;
   }
 
-  if (WIFEXITED(screensaver_status)) {
-    error = WEXITSTATUS(screensaver_status);
-    fprintf(stdout, "Screensaver exited normally: %d\n", error);
-  }
+  psiginfo(&screensaver_info, NULL);
 
-  if (WIFSIGNALED(screensaver_status)) {
-    error = WTERMSIG(screensaver_status);
-    signal_desc = strsignal(error);
-    fprintf(stdout, "Screensaver exited by an uncaught signal: %d %s\n", error,
-            signal_desc);
+  if (screensaver_info.si_code == CLD_EXITED) {
+    fprintf(stderr, "Child exited normally: %d\n", screensaver_info.si_status);
+  } else {
+    psignal(screensaver_info.si_status, "Child exited by an uncaught signal");
   }
 
   *screensaver_pid = 0;
