@@ -93,7 +93,8 @@ static pid_t launch_screensaver(xcb_window_t window,
   /* TODO: any cleanup before exec'ing the screensaver? */
   execl(screensaver_path, screensaver_path, "--root", NULL);
   perror("execl");
-  return -1;
+  /* don't return and call cleanups, nor flush parent's buffers */
+  _exit(EXIT_FAILURE);
 }
 
 static void cleanup_screensaver(pid_t *screensaver_pid) {
