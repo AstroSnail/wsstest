@@ -9,11 +9,10 @@
 #include <inttypes.h>
 #include <poll.h>
 #include <signal.h>
+#include <spawn.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <sys/wait.h>
-#include <unistd.h>
 
 /* the only c99 feature used in the header seems to be inline */
 #define inline
@@ -22,6 +21,8 @@
 
 #include <xcb/xcb.h>
 #include <xcb/xcb_util.h>
+
+extern char **environ;
 
 #define CLEANUP(how) __attribute__((cleanup(cleanup_##how)))
 
@@ -71,30 +72,32 @@ static xcb_window_t create_window(xcb_connection_t *connection_x11,
   return window;
 }
 
-static pid_t launch_screensaver(xcb_window_t window,
-                                const char *screensaver_path) {
-  pid_t screensaver_pid = 0;
+static pid_t launch_screensaver(xcb_window_t window, char *screensaver_path) {
   enum { window_id_len = sizeof(xcb_window_t) * 2 + 3 };
   char window_id_string[window_id_len] = {0};
+  int error = 0;
+  pid_t screensaver_pid = 0;
+  /* why is execv* / posix_spawn* argv not const char?
+   * execl* args are const char, i don't get it... */
+  char *screensaver_argv[3] = {0};
 
-  screensaver_pid = fork();
-  if (screensaver_pid < 0) {
-    perror("fork");
-    return -1;
-  }
-
-  if (screensaver_pid > 0) {
-    return screensaver_pid;
-  }
-
+  /* lazy, ideally i'd make a copy of environ and work on that */
   snprintf(window_id_string, window_id_len, "0x%" PRIx32, window);
   setenv("XSCREENSAVER_WINDOW", window_id_string, 1);
 
-  /* TODO: any cleanup before exec'ing the screensaver? */
-  execl(screensaver_path, screensaver_path, "--root", NULL);
-  perror("execl");
-  /* don't return and call cleanups, nor flush parent's buffers */
-  _exit(EXIT_FAILURE);
+  screensaver_argv[0] = screensaver_path;
+  screensaver_argv[1] = "--root";
+  screensaver_argv[2] = NULL;
+
+  /* wl and x11 sockets are cloexec, no need to close explicitly */
+  error = posix_spawn(&screensaver_pid, screensaver_path, NULL, NULL,
+                      screensaver_argv, environ);
+  if (error != 0) {
+    perror("posix_spawn");
+    return -1;
+  }
+
+  return screensaver_pid;
 }
 
 static void cleanup_screensaver(pid_t *screensaver_pid) {
@@ -217,7 +220,7 @@ static void cleanup_connection_wl(struct wl_display **connection_wl) {
 }
 
 int main(int argc, char **argv) {
-  const char *screensaver_path = NULL;
+  char *screensaver_path = NULL;
   CLEANUP(connection_wl) struct wl_display *connection_wl = NULL;
   int error = 0;
   CLEANUP(connection_x11) xcb_connection_t *connection_x11 = NULL;
