@@ -272,7 +272,7 @@ int main(int argc, char **argv) {
       poll_ready = poll_connection_x11(connection_x11);
     }
   }
-  if (poll_ready < 0) {
+  if (error < 0 || poll_ready < 0) {
     return EXIT_FAILURE;
   }
 
