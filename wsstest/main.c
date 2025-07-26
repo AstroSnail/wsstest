@@ -155,10 +155,7 @@ static void cleanup_event(xcb_generic_event_t **event) {
 static int handle_event(xcb_connection_t *connection_x11) {
   CLEANUP(event) xcb_generic_event_t *event = NULL;
   uint8_t event_type = 0;
-  const char *event_label = NULL;
   xcb_generic_error_t *event_error = NULL;
-  const char *event_error_label = NULL;
-  const char *event_request_label = NULL;
 
   event = xcb_poll_for_event(connection_x11);
   if (event == NULL) {
@@ -166,20 +163,20 @@ static int handle_event(xcb_connection_t *connection_x11) {
   }
 
   event_type = XCB_EVENT_RESPONSE_TYPE(event);
-  event_label = xcb_event_get_label(event_type);
-  fprintf(stderr, "X Event: %" PRId8 " (%s)\n", event_type, event_label);
+  fprintf(stderr, "X Event: %" PRId8 " (%s)\n", event_type,
+          xcb_event_get_label(event_type));
 
   switch (event_type) {
   case 0: /* X_Error */
     /* ideally i could just use XmuPrintDefaultErrorMessage, but that wants an
      * Xlib Display while i only have an xcb_connection_t */
     event_error = (xcb_generic_error_t *)event;
-    event_error_label = xcb_event_get_error_label(event_error->error_code);
-    event_request_label = xcb_event_get_request_label(event_error->major_code);
     fprintf(stderr, "  Error code:    %" PRId8 " (%s)\n",
-            event_error->error_code, event_error_label);
+            event_error->error_code,
+            xcb_event_get_error_label(event_error->error_code));
     fprintf(stderr, "  Major opcode:  %" PRId8 " (%s)\n",
-            event_error->major_code, event_request_label);
+            event_error->major_code,
+            xcb_event_get_request_label(event_error->major_code));
     fprintf(stderr, "  Resource ID:   0x%" PRIx32 "\n",
             event_error->resource_id);
     /* Xlib also shows the "current" serial, but xcb doesn't seem to expose
@@ -190,7 +187,7 @@ static int handle_event(xcb_connection_t *connection_x11) {
      * i don't care */
     return -1;
   default:
-    fprintf(stderr, "  Unhandled\n");
+    fprintf(stderr, "  Serial number: %" PRId16 "\n", event->sequence);
     break;
   }
 
