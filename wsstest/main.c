@@ -14,9 +14,15 @@
 #include <stdlib.h>
 #include <sys/wait.h>
 
-/* the only c99 feature used in the header seems to be inline */
+/*
+ * the only c99 feature used in the header seems to be inline. and, at that,
+ * only in wayland-util.h for the wl_fixed_(to|from)_(double|int) functions,
+ * which are also marked static and defined in the header. to my knowledge, this
+ * means no linkage risk should arise from #defining it to the empty string, and
+ * the compiler should be able to inline it anyway whenever it decides best.
+ */
 #define inline
-#include <wayland-client.h>
+#include <wayland-client-core.h>
 #undef inline
 
 #include <xcb/xcb.h>
