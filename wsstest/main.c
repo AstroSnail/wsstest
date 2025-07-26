@@ -78,14 +78,14 @@ static xcb_window_t create_window(xcb_connection_t *connection_x11,
   return window;
 }
 
-static pid_t launch_screensaver(xcb_window_t window, char *screensaver_path) {
+static pid_t launch_screensaver(xcb_window_t window,
+                                const char *screensaver_path) {
   enum { window_id_len = sizeof(xcb_window_t) * 2 + 3 };
   char window_id_string[window_id_len] = {0};
   int error = 0;
   pid_t screensaver_pid = 0;
-  /* why is execv* / posix_spawn* argv not const char?
-   * execl* args are const char, i don't get it... */
-  char *screensaver_argv[3] = {0};
+  enum { screensaver_argv_len = 3 }; /* space for argv[0] and ending NULL */
+  const char *screensaver_argv[screensaver_argv_len] = {NULL};
 
   /* lazy, ideally i'd make a copy of environ and work on that */
   snprintf(window_id_string, window_id_len, "0x%" PRIx32, window);
@@ -95,9 +95,15 @@ static pid_t launch_screensaver(xcb_window_t window, char *screensaver_path) {
   screensaver_argv[1] = "--root";
   screensaver_argv[2] = NULL;
 
-  /* wl and x11 sockets are cloexec, no need to close explicitly */
+  /*
+   * wl and x11 sockets are cloexec, no need to close explicitly.
+   *
+   * argv is specified to not be modified by posix_spawn (described in the
+   * manual for the exec family of functions, explained under Rationale) so the
+   * const-discarding cast is safe in theory.
+   */
   error = posix_spawn(&screensaver_pid, screensaver_path, NULL, NULL,
-                      screensaver_argv, environ);
+                      (char *const *)screensaver_argv, environ);
   if (error != 0) {
     perror("posix_spawn");
     return -1;
@@ -226,7 +232,7 @@ static void cleanup_connection_wl(struct wl_display **connection_wl) {
 }
 
 int main(int argc, char **argv) {
-  char *screensaver_path = NULL;
+  const char *screensaver_path = NULL;
   CLEANUP(connection_wl) struct wl_display *connection_wl = NULL;
   int error = 0;
   CLEANUP(connection_x11) xcb_connection_t *connection_x11 = NULL;

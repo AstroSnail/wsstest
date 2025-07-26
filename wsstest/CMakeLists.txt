@@ -13,6 +13,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 add_executable(wsstest main.c)
 # doesn't add -std=c90
 # target_compile_features(wsstest PRIVATE c_std_90)
+# -Wc++-compat doesn't seem to warn about all differences between c and c++
+# e.g. assigning a string literal to a non-const char *, or missing struct field
+# initializers implicitly initializing to 0
 target_compile_options(wsstest PRIVATE -Wall -Wextra -Wpedantic -Wc++-compat)
 # if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
 # 	target_compile_options(wsstest PRIVATE ...)
