@@ -15,16 +15,7 @@
 #include <string.h>
 #include <sys/wait.h>
 
-/*
- * the only c99 feature used in the header seems to be inline. and, at that,
- * only in wayland-util.h for the wl_fixed_(to|from)_(double|int) functions,
- * which are also marked static and defined in the header. to my knowledge, this
- * means no linkage risk should arise from #defining it to the empty string, and
- * the compiler should be able to inline it anyway whenever it decides best.
- */
-#define inline
 #include <wayland-client-core.h>
-#undef inline
 
 #include <xcb/xcb.h>
 #include <xcb/xcb_util.h>
@@ -86,15 +77,11 @@ static pid_t launch_screensaver(xcb_window_t window,
   char window_id_string[sizeof(xcb_window_t) * 2 + 3] = {0};
   int error = 0;
   pid_t screensaver_pid = 0;
-  const char *screensaver_argv[3] = {NULL};
+  const char *const screensaver_argv[3] = {screensaver_path, "--root", NULL};
 
   /* lazy, ideally i'd make a copy of environ and work on that */
   snprintf(window_id_string, COUNTOF(window_id_string), "0x%" PRIx32, window);
   setenv("XSCREENSAVER_WINDOW", window_id_string, 1);
-
-  screensaver_argv[0] = screensaver_path;
-  screensaver_argv[1] = "--root";
-  screensaver_argv[2] = NULL;
 
   /*
    * wl and x11 sockets are cloexec, no need to close explicitly.
