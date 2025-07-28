@@ -22,6 +22,8 @@
 
       wsstest-dev = pkgs.mkShell {
         packages = wsstest.buildInputs ++ [
+          pkgs.gdb
+          pkgs.lldb
           pkgs.reuse
           pkgs.statix
           pkgs.valgrind
