@@ -77,7 +77,7 @@ static pid_t launch_screensaver(xcb_window_t window,
   char window_id_string[sizeof(xcb_window_t) * 2 + 3] = {0};
   int error = 0;
   pid_t screensaver_pid = 0;
-  const char *const screensaver_argv[3] = {screensaver_path, "--root", NULL};
+  const char *const screensaver_argv[] = {screensaver_path, "--root", NULL};
 
   /* lazy, ideally i'd make a copy of environ and work on that */
   snprintf(window_id_string, COUNTOF(window_id_string), "0x%" PRIx32, window);
@@ -333,6 +333,9 @@ int main(int argc, char **argv) {
     error = dispatch_wl_events(wl);
     if (error < 0) {
       break;
+    }
+    if (error > 0) {
+      error = 0;
     }
 
     poll_ready = poll_connections(wl, x11);
