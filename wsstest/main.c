@@ -16,6 +16,7 @@
 #include <sys/wait.h>
 
 #include <wayland-client-core.h>
+#include <wayland-client-protocol.h>
 
 #include <xcb/xcb.h>
 #include <xcb/xcb_util.h>
@@ -24,6 +25,37 @@ extern char **environ;
 
 #define CLEANUP(how) __attribute__((cleanup(cleanup_##how)))
 #define COUNTOF(array) (sizeof(array) / sizeof(array)[0])
+
+static int connect_wl(struct wl_display **out_wl,
+                      struct wl_registry **out_wl_registry) {
+  struct wl_display *wl = NULL;
+  struct wl_registry *wl_registry = NULL;
+
+  wl = wl_display_connect(NULL);
+  if (wl == NULL) {
+    perror("wl_display_connect");
+    return -1;
+  }
+
+  wl_registry = wl_display_get_registry(wl);
+  if (wl_registry == NULL) {
+    perror("wl_display_get_registry");
+    wl_display_disconnect(wl);
+    return -1;
+  }
+
+  *out_wl = wl;
+  *out_wl_registry = wl_registry;
+  return 0;
+}
+
+static void cleanup_wl_display(struct wl_display **wl) {
+  if (*wl == NULL) {
+    return;
+  }
+  wl_display_disconnect(*wl);
+  *wl = NULL;
+}
 
 static int connect_x11(xcb_connection_t **out_x11,
                        xcb_screen_t **out_screen_preferred) {
@@ -65,8 +97,6 @@ static xcb_window_t create_window(xcb_connection_t *x11,
                     XCB_WINDOW_CLASS_INPUT_OUTPUT, screen->root_visual, 0,
                     NULL);
   xcb_map_window(x11, window);
-
-  fprintf(stderr, "Window: 0x%" PRIx32 "\n", window);
 
   return window;
 }
@@ -151,19 +181,29 @@ static int read_wl_events(struct wl_display *wl) {
   return 0;
 }
 
-static int dispatch_wl_events(struct wl_display *wl) {
-  int dispatched = 0;
-
-  dispatched = wl_display_dispatch_pending(wl);
-  if (dispatched < 0) {
-    perror("wl_display_dispatch_pending");
-    return -1;
-  }
-
-  fprintf(stderr, "wl_display_dispatch_pending: %d\n", dispatched);
-
-  return dispatched;
+static void handle_wl_registry_global(void *data,
+                                      struct wl_registry *wl_registry,
+                                      uint32_t name, const char *interface,
+                                      uint32_t version) {
+  (void)data;
+  (void)wl_registry;
+  fputs("Wayland global\n", stderr);
+  fprintf(stderr, "  name: %" PRIu32 "\n", name);
+  fprintf(stderr, "  interface: %s\n", interface);
+  fprintf(stderr, "  version: %" PRIu32 "\n", version);
 }
+
+static void handle_wl_registry_global_remove(void *data,
+                                             struct wl_registry *wl_registry,
+                                             uint32_t name) {
+  (void)data;
+  (void)wl_registry;
+  fputs("Wayland global_remove\n", stderr);
+  fprintf(stderr, "  name: %" PRIu32 "\n", name);
+}
+
+static const struct wl_registry_listener registry_listener = {
+    handle_wl_registry_global, handle_wl_registry_global_remove};
 
 static void cleanup_x11_event(xcb_generic_event_t **event) {
   if (*event == NULL) {
@@ -249,7 +289,6 @@ static int poll_connections(struct wl_display *wl, xcb_connection_t *x11) {
     perror("poll");
     return -1;
   }
-
   fprintf(stderr, "poll: %d\n", poll_ready);
 
   /* simplification: if any connection is ready for reading (or error), go ahead
@@ -257,17 +296,11 @@ static int poll_connections(struct wl_display *wl, xcb_connection_t *x11) {
   return poll_ready;
 }
 
-static void cleanup_wl_display(struct wl_display **wl) {
-  if (*wl == NULL) {
-    return;
-  }
-  wl_display_disconnect(*wl);
-  *wl = NULL;
-}
-
 int main(int argc, char **argv) {
   const char *screensaver_path = NULL;
   CLEANUP(wl_display) struct wl_display *wl = NULL;
+  /* TODO: this leaks, how to clean up? */
+  struct wl_registry *wl_registry = NULL;
   int error = 0;
   CLEANUP(x11_connection) xcb_connection_t *x11 = NULL;
   xcb_screen_t *screen_preferred = NULL;
@@ -281,11 +314,24 @@ int main(int argc, char **argv) {
   }
   screensaver_path = argv[1];
 
-  wl = wl_display_connect(NULL);
-  if (wl == NULL) {
-    perror("wl_display_connect");
+  error = connect_wl(&wl, &wl_registry);
+  if (error != 0) {
     return EXIT_FAILURE;
   }
+
+  error = wl_registry_add_listener(wl_registry, &registry_listener, NULL);
+  if (error != 0) {
+    fputs("wl_registry_add_listener: listener already set\n", stderr);
+    return EXIT_FAILURE;
+  }
+
+  error = wl_display_flush(wl);
+  /* TODO: EAGAIN isn't fatal, but needs a POLLOUT loop */
+  if (error < 0) {
+    perror("wl_display_flush");
+    return EXIT_FAILURE;
+  }
+  fprintf(stderr, "wl_display_flush: %d\n", error);
 
   error = connect_x11(&x11, &screen_preferred);
   if (error != 0) {
@@ -293,6 +339,7 @@ int main(int argc, char **argv) {
   }
 
   window = create_window(x11, screen_preferred);
+  fprintf(stderr, "create_window: 0x%" PRIx32 "\n", window);
 
   error = xcb_flush(x11);
   if (error <= 0) {
@@ -300,11 +347,13 @@ int main(int argc, char **argv) {
     return EXIT_FAILURE;
   }
   /* unsure what positive error values mean, besides success */
+  fprintf(stderr, "xcb_flush: %d\n", error);
 
   screensaver_pid = launch_screensaver(window, screensaver_path);
   if (screensaver_pid <= 0) {
     return EXIT_FAILURE;
   }
+  fprintf(stderr, "launch_screensaver: %ld\n", (long)screensaver_pid);
 
   /*
    * wl_display_dispatch and xcb_wait_for_event can't timeout (and since we're
@@ -330,10 +379,12 @@ int main(int argc, char **argv) {
       break;
     }
     /* however, it dispatches all pending events in one go (i think!) */
-    error = dispatch_wl_events(wl);
+    error = wl_display_dispatch_pending(wl);
     if (error < 0) {
+      perror("wl_display_dispatch_pending");
       break;
     }
+    fprintf(stderr, "wl_display_dispatch_pending: %d\n", error);
     if (error > 0) {
       error = 0;
     }
