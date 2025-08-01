@@ -57,6 +57,14 @@ static void cleanup_wl_display(struct wl_display **wl) {
   *wl = NULL;
 }
 
+static void cleanup_wl_registry(struct wl_registry **wl_registry) {
+  if (*wl_registry == NULL) {
+    return;
+  }
+  wl_registry_destroy(*wl_registry);
+  *wl_registry = NULL;
+}
+
 static int connect_x11(xcb_connection_t **out_x11,
                        xcb_screen_t **out_screen_preferred) {
   xcb_connection_t *x11 = NULL;
@@ -299,8 +307,7 @@ static int poll_connections(struct wl_display *wl, xcb_connection_t *x11) {
 int main(int argc, char **argv) {
   const char *screensaver_path = NULL;
   CLEANUP(wl_display) struct wl_display *wl = NULL;
-  /* TODO: this leaks, how to clean up? */
-  struct wl_registry *wl_registry = NULL;
+  CLEANUP(wl_registry) struct wl_registry *wl_registry = NULL;
   int error = 0;
   CLEANUP(x11_connection) xcb_connection_t *x11 = NULL;
   xcb_screen_t *screen_preferred = NULL;
