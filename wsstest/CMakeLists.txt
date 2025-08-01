@@ -14,10 +14,6 @@ add_executable(wsstest main.c)
 # doesn't add -std=c99
 # target_compile_features(wsstest PRIVATE c_std_99)
 target_compile_options(wsstest PRIVATE -Wall -Wextra -Wpedantic)
-# -Wc++-compat doesn't seem to warn about all differences between c and c++
-# (e.g. assigning a string literal to a non-const char *, or missing struct
-# field initializers implicitly initializing to 0)
-target_compile_options(wsstest PRIVATE -Wc++-compat)
 if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
 	# likewise -Wc90-c99-compat doesn't seem to warn about all differences
 	# between c90 and c99 (e.g. inline keyword, non-static aggregate

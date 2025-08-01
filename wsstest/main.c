@@ -27,6 +27,23 @@ extern char **environ;
 #define CLEANUP(how) __attribute__((cleanup(cleanup_##how)))
 #define COUNTOF(array) (sizeof(array) / sizeof(array)[0])
 
+struct state {
+  struct wl_compositor *compositor;
+  struct wl_shm *shm;
+};
+
+static void cleanup_state(struct state *state) {
+  if (state->compositor != NULL) {
+    wl_compositor_destroy(state->compositor);
+    state->compositor = NULL;
+  }
+
+  if (state->shm != NULL) {
+    wl_shm_destroy(state->shm);
+    state->shm = NULL;
+  }
+}
+
 static int connect_wl(
     struct wl_display **out_wl, struct wl_registry **out_wl_registry) {
   struct wl_display *wl = NULL;
@@ -192,12 +209,46 @@ static int read_wl_events(struct wl_display *wl) {
 static void handle_wl_registry_global(void *data,
     struct wl_registry *wl_registry, uint32_t name, const char *interface,
     uint32_t version) {
-  (void)data;
-  (void)wl_registry;
-  fputs("Wayland global\n", stderr);
-  fprintf(stderr, "  name: %" PRIu32 "\n", name);
-  fprintf(stderr, "  interface: %s\n", interface);
-  fprintf(stderr, "  version: %" PRIu32 "\n", version);
+  struct state *state = data;
+  uint32_t iface_version = 0;
+  int error = 0;
+
+  if (strcmp(interface, wl_compositor_interface.name) == 0) {
+    /* TODO: am i doing this right? */
+    /* iface_version = wl_compositor_interface.version; */
+    iface_version = 4;
+    if (version != iface_version) {
+      fprintf(stderr, "%s version %" PRIu32 " != %" PRIu32 "\n", interface,
+          version, iface_version);
+    }
+    state->compositor = wl_registry_bind(
+        wl_registry, name, &wl_compositor_interface, iface_version);
+    if (state->compositor == NULL) {
+      perror(interface);
+    }
+    return;
+  }
+
+  if (strcmp(interface, wl_shm_interface.name) == 0) {
+    /* TODO: am i doing this right? */
+    /* iface_version = wl_shm_interface.version; */
+    iface_version = 1;
+    if (version != iface_version) {
+      fprintf(stderr, "%s version %" PRIu32 " != %" PRIu32 "\n", interface,
+          version, iface_version);
+    }
+    state->shm =
+        wl_registry_bind(wl_registry, name, &wl_shm_interface, iface_version);
+    if (state->shm == NULL) {
+      perror(interface);
+      return;
+    }
+    /* error = wl_shm_add_listener(state->shm, ..., NULL); */
+    if (error != 0) {
+      fputs("wl_shm_add_listener: listener already set\n", stderr);
+    }
+    return;
+  }
 }
 
 static void handle_wl_registry_global_remove(
@@ -329,6 +380,7 @@ int main(int argc, char **argv) {
   int error = 0;
   CLEANUP(wl_display) struct wl_display *wl = NULL;
   CLEANUP(wl_registry) struct wl_registry *wl_registry = NULL;
+  CLEANUP(state) struct state state = {0};
   CLEANUP(x11_connection) xcb_connection_t *x11 = NULL;
   xcb_screen_t *screen_preferred = NULL;
   xcb_window_t window = 0;
@@ -346,7 +398,7 @@ int main(int argc, char **argv) {
     return EXIT_FAILURE;
   }
 
-  error = wl_registry_add_listener(wl_registry, &registry_listener, NULL);
+  error = wl_registry_add_listener(wl_registry, &registry_listener, &state);
   if (error != 0) {
     fputs("wl_registry_add_listener: listener already set\n", stderr);
     return EXIT_FAILURE;

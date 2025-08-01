@@ -29,7 +29,10 @@
           pkgs.statix
           pkgs.valgrind
         ];
-        env.HACKS = "${pkgs.xscreensaver}/libexec/xscreensaver";
+        env = {
+          HACKS = "${pkgs.xscreensaver}/libexec/xscreensaver";
+          WAYLAND_DEBUG = 1;
+        };
         shellHook = perSystem.config.pre-commit.installationScript;
       };
 
