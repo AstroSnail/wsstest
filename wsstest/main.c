@@ -6,6 +6,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
+#include <errno.h>
 #include <inttypes.h>
 #include <poll.h>
 #include <signal.h>
@@ -297,11 +298,33 @@ static int poll_connections(struct wl_display *wl, xcb_connection_t *x11) {
     perror("poll");
     return -1;
   }
-  fprintf(stderr, "poll: %d\n", poll_ready);
 
   /* simplification: if any connection is ready for reading (or error), go ahead
    * and try reading from both */
   return poll_ready;
+}
+
+static int flush_wl(struct wl_display *wl) {
+  struct pollfd flush_poll[1] = {0};
+  int error = 0;
+
+  flush_poll[0].fd = wl_display_get_fd(wl);
+  flush_poll[0].events = POLLOUT;
+
+  do {
+    /* lazy, ideally check poll status */
+    poll(flush_poll, COUNTOF(flush_poll), -1);
+    /* doesn't block, instead errors with EAGAIN */
+    error = wl_display_flush(wl);
+  } while (error < 0 && errno == EAGAIN);
+  /* if the connection was closed, continue and try to read the error later */
+  if (error < 0 && errno != EPIPE) {
+    perror("wl_display_flush");
+    return -1;
+  }
+  fprintf(stderr, "wl_display_flush: %d\n", error);
+
+  return 0;
 }
 
 int main(int argc, char **argv) {
@@ -332,13 +355,10 @@ int main(int argc, char **argv) {
     return EXIT_FAILURE;
   }
 
-  error = wl_display_flush(wl);
-  /* TODO: EAGAIN isn't fatal, but needs a POLLOUT loop */
-  if (error < 0) {
-    perror("wl_display_flush");
+  error = flush_wl(wl);
+  if (error != 0) {
     return EXIT_FAILURE;
   }
-  fprintf(stderr, "wl_display_flush: %d\n", error);
 
   error = connect_x11(&x11, &screen_preferred);
   if (error != 0) {
@@ -354,6 +374,7 @@ int main(int argc, char **argv) {
     return EXIT_FAILURE;
   }
   /* unsure what positive error values mean, besides success */
+  /* i suspect that the only success value is 1 */
   fprintf(stderr, "xcb_flush: %d\n", error);
 
   screensaver_pid = launch_screensaver(window, screensaver_path);
@@ -397,6 +418,7 @@ int main(int argc, char **argv) {
     }
 
     poll_ready = poll_connections(wl, x11);
+    fprintf(stderr, "poll_connections: %d\n", poll_ready);
   }
   if (error != 0 || poll_ready < 0) {
     return EXIT_FAILURE;
