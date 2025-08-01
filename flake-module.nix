@@ -22,6 +22,7 @@
 
       wsstest-dev = pkgs.mkShell {
         packages = wsstest.buildInputs ++ [
+          pkgs.clang-tools
           pkgs.gdb
           pkgs.lldb
           pkgs.reuse

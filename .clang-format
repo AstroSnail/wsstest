@@ -1,0 +1,8 @@
+# SPDX-FileCopyrightText: 2025 AstroSnail <astrosnail@protonmail.com>
+#
+# SPDX-License-Identifier: Apache-2.0
+
+# i don't care about the base too much, LLVM happens to be the default
+BasedOnStyle: LLVM
+# don't waste so many spaces
+AlignAfterOpenBracket: DontAlign

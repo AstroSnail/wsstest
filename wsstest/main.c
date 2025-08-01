@@ -27,8 +27,8 @@ extern char **environ;
 #define CLEANUP(how) __attribute__((cleanup(cleanup_##how)))
 #define COUNTOF(array) (sizeof(array) / sizeof(array)[0])
 
-static int connect_wl(struct wl_display **out_wl,
-                      struct wl_registry **out_wl_registry) {
+static int connect_wl(
+    struct wl_display **out_wl, struct wl_registry **out_wl_registry) {
   struct wl_display *wl = NULL;
   struct wl_registry *wl_registry = NULL;
 
@@ -66,8 +66,8 @@ static void cleanup_wl_registry(struct wl_registry **wl_registry) {
   *wl_registry = NULL;
 }
 
-static int connect_x11(xcb_connection_t **out_x11,
-                       xcb_screen_t **out_screen_preferred) {
+static int connect_x11(
+    xcb_connection_t **out_x11, xcb_screen_t **out_screen_preferred) {
   xcb_connection_t *x11 = NULL;
   xcb_screen_t *screen_preferred = NULL;
 
@@ -96,22 +96,21 @@ static void cleanup_x11_connection(xcb_connection_t **x11) {
   *x11 = NULL;
 }
 
-static xcb_window_t create_window(xcb_connection_t *x11,
-                                  const xcb_screen_t *screen) {
+static xcb_window_t create_window(
+    xcb_connection_t *x11, const xcb_screen_t *screen) {
   xcb_window_t window = 0;
 
   window = xcb_generate_id(x11);
   xcb_create_window(x11, XCB_COPY_FROM_PARENT, window, screen->root, 0, 0,
-                    screen->width_in_pixels, screen->height_in_pixels, 0,
-                    XCB_WINDOW_CLASS_INPUT_OUTPUT, screen->root_visual, 0,
-                    NULL);
+      screen->width_in_pixels, screen->height_in_pixels, 0,
+      XCB_WINDOW_CLASS_INPUT_OUTPUT, screen->root_visual, 0, NULL);
   xcb_map_window(x11, window);
 
   return window;
 }
 
-static pid_t launch_screensaver(xcb_window_t window,
-                                const char *screensaver_path) {
+static pid_t launch_screensaver(
+    xcb_window_t window, const char *screensaver_path) {
   /* * 2 for nybbles (halves of bytes), + 3 for "0x" and NUL terminator */
   char window_id_string[sizeof(xcb_window_t) * 2 + 3] = {0};
   int error = 0;
@@ -130,7 +129,7 @@ static pid_t launch_screensaver(xcb_window_t window,
    * const-discarding cast is safe in theory.
    */
   error = posix_spawn(&screensaver_pid, screensaver_path, NULL, NULL,
-                      (char *const *)screensaver_argv, environ);
+      (char *const *)screensaver_argv, environ);
   if (error != 0) {
     perror("posix_spawn");
     return -1;
@@ -191,9 +190,8 @@ static int read_wl_events(struct wl_display *wl) {
 }
 
 static void handle_wl_registry_global(void *data,
-                                      struct wl_registry *wl_registry,
-                                      uint32_t name, const char *interface,
-                                      uint32_t version) {
+    struct wl_registry *wl_registry, uint32_t name, const char *interface,
+    uint32_t version) {
   (void)data;
   (void)wl_registry;
   fputs("Wayland global\n", stderr);
@@ -202,9 +200,8 @@ static void handle_wl_registry_global(void *data,
   fprintf(stderr, "  version: %" PRIu32 "\n", version);
 }
 
-static void handle_wl_registry_global_remove(void *data,
-                                             struct wl_registry *wl_registry,
-                                             uint32_t name) {
+static void handle_wl_registry_global_remove(
+    void *data, struct wl_registry *wl_registry, uint32_t name) {
   (void)data;
   (void)wl_registry;
   fputs("Wayland global_remove\n", stderr);
@@ -235,7 +232,7 @@ static int handle_x11_event(xcb_connection_t *x11) {
 
   event_type = XCB_EVENT_RESPONSE_TYPE(event);
   fprintf(stderr, "X Event: %" PRId8 " (%s)\n", event_type,
-          xcb_event_get_label(event_type));
+      xcb_event_get_label(event_type));
 
   switch (event_type) {
   case 0: /* X_Error */
@@ -243,13 +240,13 @@ static int handle_x11_event(xcb_connection_t *x11) {
      * Xlib Display while i only have an xcb_connection_t */
     event_error = (xcb_generic_error_t *)event;
     fprintf(stderr, "  Error code:    %" PRId8 " (%s)\n",
-            event_error->error_code,
-            xcb_event_get_error_label(event_error->error_code));
+        event_error->error_code,
+        xcb_event_get_error_label(event_error->error_code));
     fprintf(stderr, "  Major opcode:  %" PRId8 " (%s)\n",
-            event_error->major_code,
-            xcb_event_get_request_label(event_error->major_code));
-    fprintf(stderr, "  Resource ID:   0x%" PRIx32 "\n",
-            event_error->resource_id);
+        event_error->major_code,
+        xcb_event_get_request_label(event_error->major_code));
+    fprintf(
+        stderr, "  Resource ID:   0x%" PRIx32 "\n", event_error->resource_id);
     /* Xlib also shows the "current" serial, but xcb doesn't seem to expose
      * this for us at all */
     fprintf(stderr, "  Serial number: %" PRId16 "\n", event_error->sequence);
@@ -329,9 +326,9 @@ static int flush_wl(struct wl_display *wl) {
 
 int main(int argc, char **argv) {
   const char *screensaver_path = NULL;
+  int error = 0;
   CLEANUP(wl_display) struct wl_display *wl = NULL;
   CLEANUP(wl_registry) struct wl_registry *wl_registry = NULL;
-  int error = 0;
   CLEANUP(x11_connection) xcb_connection_t *x11 = NULL;
   xcb_screen_t *screen_preferred = NULL;
   xcb_window_t window = 0;
