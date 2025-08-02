@@ -2,7 +2,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-# i don't care about the base too much, LLVM happens to be the default
-BasedOnStyle: LLVM
+BasedOnStyle: Mozilla
 # don't waste so many spaces
-AlignAfterOpenBracket: DontAlign
+AlignAfterOpenBracket: AlwaysBreak
+# distinguish continuations from indents (like LLVM)
+ContinuationIndentWidth: 4
