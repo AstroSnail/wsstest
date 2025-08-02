@@ -68,19 +68,17 @@ static int connect_wl(
 }
 
 static void cleanup_wl_display(struct wl_display **wl) {
-  if (*wl == NULL) {
-    return;
+  if (*wl != NULL) {
+    wl_display_disconnect(*wl);
+    *wl = NULL;
   }
-  wl_display_disconnect(*wl);
-  *wl = NULL;
 }
 
 static void cleanup_wl_registry(struct wl_registry **wl_registry) {
-  if (*wl_registry == NULL) {
-    return;
+  if (*wl_registry != NULL) {
+    wl_registry_destroy(*wl_registry);
+    *wl_registry = NULL;
   }
-  wl_registry_destroy(*wl_registry);
-  *wl_registry = NULL;
 }
 
 static int connect_x11(
@@ -106,11 +104,10 @@ static int connect_x11(
 }
 
 static void cleanup_x11_connection(xcb_connection_t **x11) {
-  if (*x11 == NULL) {
-    return;
+  if (*x11 != NULL) {
+    xcb_disconnect(*x11);
+    *x11 = NULL;
   }
-  xcb_disconnect(*x11);
-  *x11 = NULL;
 }
 
 static xcb_window_t create_window(
@@ -263,11 +260,10 @@ static const struct wl_registry_listener registry_listener = {
     handle_wl_registry_global, handle_wl_registry_global_remove};
 
 static void cleanup_x11_event(xcb_generic_event_t **event) {
-  if (*event == NULL) {
-    return;
+  if (*event != NULL) {
+    free(*event);
+    *event = NULL;
   }
-  free(*event);
-  *event = NULL;
 }
 
 static int handle_x11_event(xcb_connection_t *x11) {
@@ -282,7 +278,7 @@ static int handle_x11_event(xcb_connection_t *x11) {
   }
 
   event_type = XCB_EVENT_RESPONSE_TYPE(event);
-  fprintf(stderr, "X Event: %" PRId8 " (%s)\n", event_type,
+  fprintf(stderr, "X Event: %" PRIu8 " (%s)\n", event_type,
       xcb_event_get_label(event_type));
 
   switch (event_type) {
@@ -290,24 +286,24 @@ static int handle_x11_event(xcb_connection_t *x11) {
     /* ideally i could just use XmuPrintDefaultErrorMessage, but that wants an
      * Xlib Display while i only have an xcb_connection_t */
     event_error = (xcb_generic_error_t *)event;
-    fprintf(stderr, "  Error code:    %" PRId8 " (%s)\n",
+    fprintf(stderr, "  Error code:    %" PRIu8 " (%s)\n",
         event_error->error_code,
         xcb_event_get_error_label(event_error->error_code));
-    fprintf(stderr, "  Major opcode:  %" PRId8 " (%s)\n",
+    fprintf(stderr, "  Major opcode:  %" PRIu8 " (%s)\n",
         event_error->major_code,
         xcb_event_get_request_label(event_error->major_code));
     fprintf(
         stderr, "  Resource ID:   0x%" PRIx32 "\n", event_error->resource_id);
     /* Xlib also shows the "current" serial, but xcb doesn't seem to expose
      * this for us at all */
-    fprintf(stderr, "  Serial number: %" PRId16 "\n", event_error->sequence);
+    fprintf(stderr, "  Serial number: %" PRIu16 "\n", event_error->sequence);
     /* break the event loop on any X_Error. Xlib makes an exception for
      * error_code 17 BadImplementation (server does not implement operation) but
      * i don't care */
     return -1;
 
   default:
-    fprintf(stderr, "  Serial number: %" PRId16 "\n", event->sequence);
+    fprintf(stderr, "  Serial number: %" PRIu16 "\n", event->sequence);
     break;
   }
 

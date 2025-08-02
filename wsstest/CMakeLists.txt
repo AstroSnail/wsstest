@@ -15,9 +15,8 @@ add_executable(wsstest main.c)
 # target_compile_features(wsstest PRIVATE c_std_99)
 target_compile_options(wsstest PRIVATE -Wall -Wextra -Wpedantic)
 if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
-	# likewise -Wc90-c99-compat doesn't seem to warn about all differences
-	# between c90 and c99 (e.g. inline keyword, non-static aggregate
-	# initializers)
+	# -Wc90-c99-compat doesn't seem to warn about all differences between
+	# c90 and c99 (e.g. inline keyword, non-static aggregate initializers).
 	# conveniently, we actually want those
 	target_compile_options(wsstest PRIVATE -Wc90-c99-compat)
 elseif (CMAKE_C_COMPILER_ID STREQUAL "Clang")
