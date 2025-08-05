@@ -17,12 +17,3 @@ add_executable(wsstest main.c)
 target_compile_options(wsstest PRIVATE -Wall -Wextra -Wpedantic)
 target_link_libraries(wsstest wayland-client xcb xcb-util)
 install(TARGETS wsstest)
-
-if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
-	# -Wc90-c99-compat doesn't seem to warn about all differences between
-	# c90 and c99 (e.g. inline keyword, non-static aggregate initializers).
-	# conveniently, we actually want those
-	target_compile_options(wsstest PRIVATE -Wc90-c99-compat)
-elseif (CMAKE_C_COMPILER_ID STREQUAL "Clang")
-	# target_compile_options(wsstest PRIVATE ...)
-endif()

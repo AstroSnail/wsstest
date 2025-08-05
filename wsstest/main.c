@@ -11,18 +11,17 @@
 #include <poll.h>
 #include <signal.h>
 #include <spawn.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
+extern char** environ;
 
 #include <wayland-client-core.h>
 #include <wayland-client-protocol.h>
-
 #include <xcb/xcb.h>
 #include <xcb/xcb_util.h>
-
-extern char** environ;
 
 #define CLEANUP(how) __attribute__((cleanup(cleanup_##how)))
 #define COUNTOF(array) (sizeof(array) / sizeof(array)[0])
@@ -47,115 +46,14 @@ cleanup_state(struct state* state)
   }
 }
 
-static int
-connect_wl(struct wl_display** out_wl, struct wl_registry** out_wl_registry)
-{
-  struct wl_display* wl = NULL;
-  struct wl_registry* wl_registry = NULL;
-
-  wl = wl_display_connect(NULL);
-  if (wl == NULL) {
-    perror("wl_display_connect");
-    return -1;
-  }
-
-  wl_registry = wl_display_get_registry(wl);
-  if (wl_registry == NULL) {
-    perror("wl_display_get_registry");
-    wl_display_disconnect(wl);
-    return -1;
-  }
-
-  *out_wl = wl;
-  *out_wl_registry = wl_registry;
-  return 0;
-}
-
-static void
-cleanup_wl_display(struct wl_display** wl)
-{
-  if (*wl != NULL) {
-    wl_display_disconnect(*wl);
-    *wl = NULL;
-  }
-}
-
-static void
-cleanup_wl_registry(struct wl_registry** wl_registry)
-{
-  if (*wl_registry != NULL) {
-    wl_registry_destroy(*wl_registry);
-    *wl_registry = NULL;
-  }
-}
-
-static int
-connect_x11(xcb_connection_t** out_x11, xcb_screen_t** out_screen_preferred)
-{
-  xcb_connection_t* x11 = NULL;
-  xcb_screen_t* screen_preferred = NULL;
-
-  int screen_preferred_n = 0;
-  int error = 0;
-
-  x11 = xcb_connect(NULL, &screen_preferred_n);
-  error = xcb_connection_has_error(x11);
-  if (error != 0) {
-    fprintf(stderr, "xcb_connection_has_error: %d\n", error);
-    return -1;
-  }
-
-  screen_preferred = xcb_aux_get_screen(x11, screen_preferred_n);
-
-  *out_x11 = x11;
-  *out_screen_preferred = screen_preferred;
-  return 0;
-}
-
-static void
-cleanup_x11_connection(xcb_connection_t** x11)
-{
-  if (*x11 != NULL) {
-    xcb_disconnect(*x11);
-    *x11 = NULL;
-  }
-}
-
-static xcb_window_t
-create_window(xcb_connection_t* x11, const xcb_screen_t* screen)
-{
-  xcb_window_t window = 0;
-
-  window = xcb_generate_id(x11);
-  xcb_create_window(
-      x11,
-      XCB_COPY_FROM_PARENT,
-      window,
-      screen->root,
-      0,
-      0,
-      screen->width_in_pixels,
-      screen->height_in_pixels,
-      0,
-      XCB_WINDOW_CLASS_INPUT_OUTPUT,
-      screen->root_visual,
-      0,
-      NULL);
-  xcb_map_window(x11, window);
-
-  return window;
-}
-
 static pid_t
 launch_screensaver(xcb_window_t window, const char* screensaver_path)
 {
-  /* * 2 for nybbles (halves of bytes), + 3 for "0x" and NUL terminator */
-  char window_id_string[sizeof(xcb_window_t) * 2 + 3] = { 0 };
   int error = 0;
-  pid_t screensaver_pid = 0;
-  const char* const screensaver_argv[] = { screensaver_path, "--root", NULL };
 
   /* lazy, ideally i'd make a copy of environ and work on that */
+  /* * 2 for nybbles (halves of bytes), + 3 for "0x" and NUL terminator */
+  char window_id_string[sizeof(xcb_window_t) * 2 + 3] = { 0 };
   snprintf(window_id_string, COUNTOF(window_id_string), "0x%" PRIx32, window);
   setenv("XSCREENSAVER_WINDOW", window_id_string, 1);
 
@@ -166,6 +64,8 @@ launch_screensaver(xcb_window_t window, const char* screensaver_path)
    * manual for the exec family of functions, explained under Rationale) so the
    * const-discarding cast is safe in theory.
    */
+  pid_t screensaver_pid = 0;
+  const char* const screensaver_argv[] = { screensaver_path, "--root", NULL };
   error = posix_spawn(
       &screensaver_pid,
       screensaver_path,
@@ -185,7 +85,6 @@ static void
 cleanup_screensaver(pid_t* screensaver_pid)
 {
   int error = 0;
-  siginfo_t screensaver_info = { 0 };
 
   if (*screensaver_pid <= 0) {
     return;
@@ -198,6 +97,7 @@ cleanup_screensaver(pid_t* screensaver_pid)
     return;
   }
 
+  siginfo_t screensaver_info = { 0 };
   error = waitid(P_PID, *screensaver_pid, &screensaver_info, WEXITED);
   if (error != 0) {
     perror("waitid");
@@ -213,6 +113,41 @@ cleanup_screensaver(pid_t* screensaver_pid)
   }
 
   *screensaver_pid = 0;
+}
+
+static int
+flush_wl(struct wl_display* wl)
+{
+  int error = 0;
+  struct pollfd flush_poll[1] = {
+    {
+        .fd = wl_display_get_fd(wl),
+        .events = POLLOUT,
+    },
+  };
+
+  do {
+    error = poll(flush_poll, COUNTOF(flush_poll), -1);
+    if (error <= 0) {
+      perror("poll");
+      break;
+    }
+    /* doesn't block, instead errors with EAGAIN */
+    /* TODO: how does it behave after a partial flush? is it possible? */
+    error = wl_display_flush(wl);
+    if (error < 0 && errno != EAGAIN && errno != EPIPE) {
+      perror("wl_display_flush");
+      break;
+    }
+  } while (error < 0 && errno == EAGAIN);
+
+  /* if the connection was closed, continue and try to read the error later */
+  if (error < 0 && errno != EPIPE) {
+    return -1;
+  }
+  fprintf(stderr, "wl_display_flush: %d\n", error);
+
+  return 0;
 }
 
 static int
@@ -245,13 +180,12 @@ handle_wl_registry_global(
     uint32_t version)
 {
   struct state* state = data;
-  uint32_t iface_version = 0;
   int error = 0;
 
   if (strcmp(interface, wl_compositor_interface.name) == 0) {
     /* TODO: am i doing this right? */
-    /* iface_version = wl_compositor_interface.version; */
-    iface_version = 4;
+    /* uint32_t iface_version = wl_compositor_interface.version; */
+    uint32_t iface_version = 4;
     if (version != iface_version) {
       fprintf(
           stderr,
@@ -270,8 +204,8 @@ handle_wl_registry_global(
 
   if (strcmp(interface, wl_shm_interface.name) == 0) {
     /* TODO: am i doing this right? */
-    /* iface_version = wl_shm_interface.version; */
-    iface_version = 1;
+    /* uint32_t iface_version = wl_shm_interface.version; */
+    uint32_t iface_version = 1;
     if (version != iface_version) {
       fprintf(
           stderr,
@@ -306,11 +240,6 @@ handle_wl_registry_global_remove(
   fprintf(stderr, "  name: %" PRIu32 "\n", name);
 }
 
-static const struct wl_registry_listener registry_listener = {
-  handle_wl_registry_global,
-  handle_wl_registry_global_remove
-};
-
 static void
 cleanup_x11_event(xcb_generic_event_t** event)
 {
@@ -324,16 +253,13 @@ static int
 handle_x11_event(xcb_connection_t* x11)
 {
   CLEANUP(x11_event) xcb_generic_event_t* event = NULL;
-  uint8_t event_type = 0;
-  xcb_generic_error_t* event_error = NULL;
-
   event = xcb_poll_for_event(x11);
   if (event == NULL) {
     fputs("xcb_poll_for_event: No events\n", stderr);
     return 0;
   }
 
-  event_type = XCB_EVENT_RESPONSE_TYPE(event);
+  uint8_t event_type = XCB_EVENT_RESPONSE_TYPE(event);
   fprintf(
       stderr,
       "X Event: %" PRIu8 " (%s)\n",
@@ -341,10 +267,10 @@ handle_x11_event(xcb_connection_t* x11)
       xcb_event_get_label(event_type));
 
   switch (event_type) {
-    case 0: /* X_Error */
+    case 0: { /* X_Error */
       /* ideally i could just use XmuPrintDefaultErrorMessage, but that wants an
        * Xlib Display while i only have an xcb_connection_t */
-      event_error = (xcb_generic_error_t*)event;
+      xcb_generic_error_t* event_error = (xcb_generic_error_t*)event;
       fprintf(
           stderr,
           "  Error code:    %" PRIu8 " (%s)\n",
@@ -364,105 +290,74 @@ handle_x11_event(xcb_connection_t* x11)
        * error_code 17 BadImplementation (server does not implement operation)
        * but i don't care */
       return -1;
+    }
 
-    default:
+    default: {
       fprintf(stderr, "  Serial number: %" PRIu16 "\n", event->sequence);
       break;
+    }
   }
 
   return 1;
 }
 
-static int
-poll_connections(struct wl_display* wl, xcb_connection_t* x11)
+static void
+cleanup_wl_display(struct wl_display** wl)
 {
-  int error = 0;
-  struct pollfd connection_poll[2] = { 0 };
-  int poll_ready = 0;
-
-  error = wl_display_get_error(wl);
-  if (error != 0) {
-    fprintf(stderr, "wl_display_get_error: %s\n", strerror(error));
-    return -1;
+  if (*wl != NULL) {
+    wl_display_disconnect(*wl);
+    *wl = NULL;
   }
-
-  error = xcb_connection_has_error(x11);
-  if (error == XCB_CONN_ERROR) {
-    /* server closed the connection, perhaps the user closed the window */
-    fputs("xcb_connection_has_error: Connection closed\n", stderr);
-    return 0;
-  }
-  if (error != 0) {
-    fprintf(stderr, "xcb_connection_has_error: %d\n", error);
-    return -1;
-  }
-
-  connection_poll[0].fd = wl_display_get_fd(wl);
-  connection_poll[0].events = POLLIN;
-  connection_poll[1].fd = xcb_get_file_descriptor(x11);
-  connection_poll[1].events = POLLIN;
-
-  poll_ready = poll(connection_poll, COUNTOF(connection_poll), 5000);
-  if (poll_ready < 0) {
-    perror("poll");
-    return -1;
-  }
-
-  /* simplification: if any connection is ready for reading (or error), go ahead
-   * and try reading from both */
-  return poll_ready;
 }
 
-static int
-flush_wl(struct wl_display* wl)
+static void
+cleanup_wl_registry(struct wl_registry** wl_registry)
 {
-  struct pollfd flush_poll[1] = { 0 };
-  int error = 0;
-
-  flush_poll[0].fd = wl_display_get_fd(wl);
-  flush_poll[0].events = POLLOUT;
-
-  do {
-    /* lazy, ideally check poll status */
-    poll(flush_poll, COUNTOF(flush_poll), -1);
-    /* doesn't block, instead errors with EAGAIN */
-    error = wl_display_flush(wl);
-  } while (error < 0 && errno == EAGAIN);
-  /* if the connection was closed, continue and try to read the error later */
-  if (error < 0 && errno != EPIPE) {
-    perror("wl_display_flush");
-    return -1;
+  if (*wl_registry != NULL) {
+    wl_registry_destroy(*wl_registry);
+    *wl_registry = NULL;
   }
-  fprintf(stderr, "wl_display_flush: %d\n", error);
+}
 
-  return 0;
+static void
+cleanup_x11_connection(xcb_connection_t** x11)
+{
+  if (*x11 != NULL) {
+    xcb_disconnect(*x11);
+    *x11 = NULL;
+  }
 }
 
 int
 main(int argc, char** argv)
 {
-  const char* screensaver_path = NULL;
   int error = 0;
-  CLEANUP(wl_display) struct wl_display* wl = NULL;
-  CLEANUP(wl_registry) struct wl_registry* wl_registry = NULL;
-  CLEANUP(state) struct state state = { 0 };
-  CLEANUP(x11_connection) xcb_connection_t* x11 = NULL;
-  xcb_screen_t* screen_preferred = NULL;
-  xcb_window_t window = 0;
-  CLEANUP(screensaver) pid_t screensaver_pid = 0;
-  int poll_ready = 0;
 
   if (argc != 2) {
     fprintf(stderr, "Usage: %s <path>\n", argv[0]);
     return EXIT_FAILURE;
   }
-  screensaver_path = argv[1];
+  const char* screensaver_path = argv[1];
 
-  error = connect_wl(&wl, &wl_registry);
-  if (error != 0) {
+  CLEANUP(wl_display) struct wl_display* wl = NULL;
+  wl = wl_display_connect(NULL);
+  if (wl == NULL) {
+    perror("wl_display_connect");
     return EXIT_FAILURE;
   }
 
+  CLEANUP(wl_registry) struct wl_registry* wl_registry = NULL;
+  wl_registry = wl_display_get_registry(wl);
+  if (wl_registry == NULL) {
+    perror("wl_display_get_registry");
+    return EXIT_FAILURE;
+  }
+
+  const struct wl_registry_listener registry_listener = {
+    handle_wl_registry_global,
+    handle_wl_registry_global_remove,
+  };
+  CLEANUP(state) struct state state = { 0 };
   error = wl_registry_add_listener(wl_registry, &registry_listener, &state);
   if (error != 0) {
     fputs("wl_registry_add_listener: listener already set\n", stderr);
@@ -474,13 +369,43 @@ main(int argc, char** argv)
     return EXIT_FAILURE;
   }
 
-  error = connect_x11(&x11, &screen_preferred);
+  CLEANUP(x11_connection) xcb_connection_t* x11 = NULL;
+  int screen_preferred_n = 0;
+  x11 = xcb_connect(NULL, &screen_preferred_n);
+  error = xcb_connection_has_error(x11);
   if (error != 0) {
+    fprintf(stderr, "xcb_connection_has_error: %d\n", error);
     return EXIT_FAILURE;
   }
 
-  window = create_window(x11, screen_preferred);
-  fprintf(stderr, "create_window: 0x%" PRIx32 "\n", window);
+  xcb_screen_t* screen_preferred = xcb_aux_get_screen(x11, screen_preferred_n);
+  if (screen_preferred == NULL) {
+    fputs("xcb_aux_get_screen\n", stderr);
+    return EXIT_FAILURE;
+  }
+
+  xcb_window_t window = xcb_generate_id(x11);
+  fprintf(stderr, "xcb_generate_id: 0x%" PRIx32 "\n", window);
+  if (window == (xcb_window_t)-1) {
+    return EXIT_FAILURE;
+  }
+
+  /* these requests error asynchronously, and are handled in the event loop */
+  xcb_create_window(
+      x11,
+      /*        depth */ XCB_COPY_FROM_PARENT,
+      /*          wid */ window,
+      /*       parent */ screen_preferred->root,
+      /*            x */ 0,
+      /*            y */ 0,
+      /*        width */ screen_preferred->width_in_pixels,
+      /*       height */ screen_preferred->height_in_pixels,
+      /* border_width */ 0,
+      /*       _class */ XCB_WINDOW_CLASS_INPUT_OUTPUT,
+      /*       visual */ screen_preferred->root_visual,
+      /*   value_mask */ 0,
+      /*   value_list */ NULL);
+  xcb_map_window(x11, window);
 
   error = xcb_flush(x11);
   if (error <= 0) {
@@ -491,6 +416,7 @@ main(int argc, char** argv)
   /* i suspect that the only success value is 1 */
   fprintf(stderr, "xcb_flush: %d\n", error);
 
+  CLEANUP(screensaver) pid_t screensaver_pid = 0;
   screensaver_pid = launch_screensaver(window, screensaver_path);
   if (screensaver_pid <= 0) {
     return EXIT_FAILURE;
@@ -503,15 +429,33 @@ main(int argc, char** argv)
    * poll instead. make sure to handle all pending events before polling the
    * connection, otherwise we might leave events stuck in a queue for a while.
    */
-  poll_ready = 1;
+  bool got_x11_error = false;
+  int poll_ready = 1;
+  struct pollfd connection_poll[2] = {
+    {
+        .fd = wl_display_get_fd(wl),
+        .events = POLLIN,
+    },
+    {
+        .fd = xcb_get_file_descriptor(x11),
+        .events = POLLIN,
+    },
+  };
   while (poll_ready > 0) {
-    /* handle x11 first because it processes one event at a time */
+    /* xcb_poll_for_event processes one event at a time, handle it first so we
+     * can use continue to loop it quickly */
     error = handle_x11_event(x11);
     if (error < 0) {
-      break;
+      /* keep reading error events */
+      got_x11_error = true;
+      continue;
     }
     if (error > 0) {
       continue;
+    }
+    if (got_x11_error) {
+      error = -1;
+      break;
     }
 
     /* xcb_poll_for_event also checks the connection for new events, but
@@ -520,7 +464,7 @@ main(int argc, char** argv)
     if (error != 0) {
       break;
     }
-    /* however, it dispatches all pending events in one go (i think!) */
+    /* however, it dispatches all pending events in one go */
     error = wl_display_dispatch_pending(wl);
     if (error < 0) {
       perror("wl_display_dispatch_pending");
@@ -531,9 +475,34 @@ main(int argc, char** argv)
       error = 0;
     }
 
-    poll_ready = poll_connections(wl, x11);
-    fprintf(stderr, "poll_connections: %d\n", poll_ready);
+    /* check for errors *after* trying to handle events, because errors are only
+     * noticed after reading events */
+    error = wl_display_get_error(wl);
+    if (error != 0) {
+      fprintf(stderr, "wl_display_get_error: %s\n", strerror(error));
+      break;
+    }
+
+    error = xcb_connection_has_error(x11);
+    if (error == XCB_CONN_ERROR) {
+      /* server closed the connection, perhaps the user closed the window */
+      fputs("xcb_connection_has_error: Connection closed\n", stderr);
+      error = 0;
+      break;
+    }
+    if (error != 0) {
+      fprintf(stderr, "xcb_connection_has_error: %d\n", error);
+      break;
+    }
+
+    poll_ready = poll(connection_poll, COUNTOF(connection_poll), 5000);
+    if (poll_ready < 0) {
+      perror("poll");
+      break;
+    }
+    fprintf(stderr, "poll: %d\n", poll_ready);
   }
+
   if (error != 0 || poll_ready < 0) {
     return EXIT_FAILURE;
   }
