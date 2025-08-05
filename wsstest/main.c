@@ -501,7 +501,7 @@ main(int argc, char** argv)
       break;
     }
     fprintf(stderr, "poll: %d\n", poll_ready);
-  }
+  } /* while (poll_ready > 0) */
 
   if (error != 0 || poll_ready < 0) {
     return EXIT_FAILURE;
