@@ -3,7 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 BasedOnStyle: Mozilla
-# don't waste so many spaces
+# don't waste so much horizontal space, but keep aligned
 AlignAfterOpenBracket: AlwaysBreak
+# commit to the break
+AllowAllArgumentsOnNextLine: false
 # distinguish continuations from indents (like LLVM)
 ContinuationIndentWidth: 4

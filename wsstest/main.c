@@ -54,7 +54,7 @@ launch_screensaver(xcb_window_t window, const char* screensaver_path)
   /* lazy, ideally i'd make a copy of environ and work on that */
   /* * 2 for nybbles (halves of bytes), + 3 for "0x" and NUL terminator */
   char window_id_string[sizeof(xcb_window_t) * 2 + 3] = { 0 };
-  snprintf(window_id_string, COUNTOF(window_id_string), "0x%" PRIx32, window);
+  snprintf(window_id_string, COUNTOF(window_id_string), "%#" PRIx32, window);
   setenv("XSCREENSAVER_WINDOW", window_id_string, 1);
 
   /*
@@ -195,7 +195,10 @@ handle_wl_registry_global(
           iface_version);
     }
     state->compositor = wl_registry_bind(
-        wl_registry, name, &wl_compositor_interface, iface_version);
+        wl_registry,
+        name,
+        &wl_compositor_interface,
+        iface_version);
     if (state->compositor == NULL) {
       perror(interface);
     }
@@ -282,7 +285,9 @@ handle_x11_event(xcb_connection_t* x11)
           event_error->major_code,
           xcb_event_get_request_label(event_error->major_code));
       fprintf(
-          stderr, "  Resource ID:   0x%" PRIx32 "\n", event_error->resource_id);
+          stderr,
+          "  Resource ID:   %#" PRIx32 "\n",
+          event_error->resource_id);
       /* Xlib also shows the "current" serial, but xcb doesn't seem to expose
        * this for us at all */
       fprintf(stderr, "  Serial number: %" PRIu16 "\n", event_error->sequence);
@@ -385,7 +390,7 @@ main(int argc, char** argv)
   }
 
   xcb_window_t window = xcb_generate_id(x11);
-  fprintf(stderr, "xcb_generate_id: 0x%" PRIx32 "\n", window);
+  fprintf(stderr, "xcb_generate_id: %#" PRIx32 "\n", window);
   if (window == (xcb_window_t)-1) {
     return EXIT_FAILURE;
   }
