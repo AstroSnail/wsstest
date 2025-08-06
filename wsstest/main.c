@@ -53,7 +53,7 @@ launch_screensaver(xcb_window_t window, const char* screensaver_path)
 
   /* lazy, ideally i'd make a copy of environ and work on that */
   /* * 2 for nybbles (halves of bytes), + 3 for "0x" and NUL terminator */
-  char window_id_string[sizeof(xcb_window_t) * 2 + 3] = { 0 };
+  char window_id_string[sizeof window * 2 + 3] = { 0 };
   snprintf(window_id_string, COUNTOF(window_id_string), "%#" PRIx32, window);
   setenv("XSCREENSAVER_WINDOW", window_id_string, 1);
 
@@ -172,6 +172,28 @@ read_wl_events(struct wl_display* wl)
 }
 
 static void
+handle_wl_shm_format(void* data, struct wl_shm* wl_shm, uint32_t format)
+{
+  (void)data;
+  (void)wl_shm;
+  fputs("Wayland shm_format\n", stderr);
+  fprintf(stderr, "  format: %#" PRIx32 "\n", format);
+  if (format > 1) {
+    fprintf(
+        stderr,
+        "  fourCC: %c%c%c%c\n",
+        format,
+        format >> 8,
+        format >> 16,
+        format >> 24);
+  }
+}
+
+static const struct wl_shm_listener shm_listener = {
+  .format = handle_wl_shm_format,
+};
+
+static void
 handle_wl_registry_global(
     void* data,
     struct wl_registry* wl_registry,
@@ -194,6 +216,7 @@ handle_wl_registry_global(
           version,
           iface_version);
     }
+
     state->compositor = wl_registry_bind(
         wl_registry,
         name,
@@ -202,6 +225,7 @@ handle_wl_registry_global(
     if (state->compositor == NULL) {
       perror(interface);
     }
+
     return;
   }
 
@@ -217,16 +241,19 @@ handle_wl_registry_global(
           version,
           iface_version);
     }
+
     state->shm =
         wl_registry_bind(wl_registry, name, &wl_shm_interface, iface_version);
     if (state->shm == NULL) {
       perror(interface);
       return;
     }
-    /* error = wl_shm_add_listener(state->shm, ..., NULL); */
+
+    error = wl_shm_add_listener(state->shm, &shm_listener, state);
     if (error != 0) {
       fputs("wl_shm_add_listener: listener already set\n", stderr);
     }
+
     return;
   }
 }
@@ -242,6 +269,11 @@ handle_wl_registry_global_remove(
   fputs("Wayland global_remove\n", stderr);
   fprintf(stderr, "  name: %" PRIu32 "\n", name);
 }
+
+static const struct wl_registry_listener registry_listener = {
+  .global = handle_wl_registry_global,
+  .global_remove = handle_wl_registry_global_remove,
+};
 
 static void
 cleanup_x11_event(xcb_generic_event_t** event)
@@ -358,10 +390,6 @@ main(int argc, char** argv)
     return EXIT_FAILURE;
   }
 
-  const struct wl_registry_listener registry_listener = {
-    handle_wl_registry_global,
-    handle_wl_registry_global_remove,
-  };
   CLEANUP(state) struct state state = { 0 };
   error = wl_registry_add_listener(wl_registry, &registry_listener, &state);
   if (error != 0) {
@@ -413,13 +441,12 @@ main(int argc, char** argv)
   xcb_map_window(x11, window);
 
   error = xcb_flush(x11);
+  fprintf(stderr, "xcb_flush: %d\n", error);
   if (error <= 0) {
-    fprintf(stderr, "xcb_flush: %d\n", -error);
     return EXIT_FAILURE;
   }
   /* unsure what positive error values mean, besides success */
   /* i suspect that the only success value is 1 */
-  fprintf(stderr, "xcb_flush: %d\n", error);
 
   CLEANUP(screensaver) pid_t screensaver_pid = 0;
   screensaver_pid = launch_screensaver(window, screensaver_path);
@@ -434,7 +461,7 @@ main(int argc, char** argv)
    * poll instead. make sure to handle all pending events before polling the
    * connection, otherwise we might leave events stuck in a queue for a while.
    */
-  bool got_x11_error = false;
+  bool got_x11_error = false, got_x11_events = false;
   int poll_ready = 1;
   struct pollfd connection_poll[2] = {
     {
@@ -456,12 +483,25 @@ main(int argc, char** argv)
       continue;
     }
     if (error > 0) {
+      got_x11_events = true;
       continue;
     }
     if (got_x11_error) {
       error = -1;
       break;
     }
+
+    /* flush requests that an event handler might have made */
+    error = 1;
+    if (got_x11_events) {
+      error = xcb_flush(x11);
+      fprintf(stderr, "xcb_flush: %d\n", error);
+      got_x11_events = false;
+    }
+    if (error <= 0) {
+      break;
+    }
+    error = 0;
 
     /* xcb_poll_for_event also checks the connection for new events, but
      * wl_display_dispatch_pending doesn't, so we need to read for it first */
@@ -476,8 +516,12 @@ main(int argc, char** argv)
       break;
     }
     fprintf(stderr, "wl_display_dispatch_pending: %d\n", error);
+
     if (error > 0) {
-      error = 0;
+      error = flush_wl(wl);
+    }
+    if (error != 0) {
+      break;
     }
 
     /* check for errors *after* trying to handle events, because errors are only
