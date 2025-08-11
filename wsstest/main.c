@@ -16,7 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
-extern char** environ;
+extern char **environ;
 
 #include <wayland-client-core.h>
 #include <wayland-client-protocol.h>
@@ -28,12 +28,12 @@ extern char** environ;
 
 struct state
 {
-  struct wl_compositor* compositor;
-  struct wl_shm* shm;
+  struct wl_compositor *compositor;
+  struct wl_shm *shm;
 };
 
 static void
-cleanup_state(struct state* state)
+cleanup_state(struct state *state)
 {
   if (state->compositor != NULL) {
     wl_compositor_destroy(state->compositor);
@@ -47,7 +47,7 @@ cleanup_state(struct state* state)
 }
 
 static pid_t
-launch_screensaver(xcb_window_t window, const char* screensaver_path)
+launch_screensaver(xcb_window_t window, const char *screensaver_path)
 {
   int error = 0;
 
@@ -65,13 +65,13 @@ launch_screensaver(xcb_window_t window, const char* screensaver_path)
    * const-discarding cast is safe in theory.
    */
   pid_t screensaver_pid = 0;
-  const char* const screensaver_argv[] = { screensaver_path, "--root", NULL };
+  const char *const screensaver_argv[] = { screensaver_path, "--root", NULL };
   error = posix_spawn(
       &screensaver_pid,
       screensaver_path,
       NULL,
       NULL,
-      (char* const*)screensaver_argv,
+      (char *const *)screensaver_argv,
       environ);
   if (error != 0) {
     perror("posix_spawn");
@@ -82,7 +82,7 @@ launch_screensaver(xcb_window_t window, const char* screensaver_path)
 }
 
 static void
-cleanup_screensaver(pid_t* screensaver_pid)
+cleanup_screensaver(pid_t *screensaver_pid)
 {
   int error = 0;
 
@@ -116,14 +116,11 @@ cleanup_screensaver(pid_t* screensaver_pid)
 }
 
 static int
-flush_wl(struct wl_display* wl)
+flush_wl(struct wl_display *wl)
 {
   int error = 0;
   struct pollfd flush_poll[1] = {
-    {
-        .fd = wl_display_get_fd(wl),
-        .events = POLLOUT,
-    },
+    { .fd = wl_display_get_fd(wl), .events = POLLOUT },
   };
 
   do {
@@ -151,7 +148,7 @@ flush_wl(struct wl_display* wl)
 }
 
 static int
-read_wl_events(struct wl_display* wl)
+read_wl_events(struct wl_display *wl)
 {
   int error = 0;
 
@@ -172,7 +169,7 @@ read_wl_events(struct wl_display* wl)
 }
 
 static void
-handle_wl_shm_format(void* data, struct wl_shm* wl_shm, uint32_t format)
+handle_wl_shm_format(void *data, struct wl_shm *wl_shm, uint32_t format)
 {
   (void)data;
   (void)wl_shm;
@@ -195,13 +192,13 @@ static const struct wl_shm_listener shm_listener = {
 
 static void
 handle_wl_registry_global(
-    void* data,
-    struct wl_registry* wl_registry,
+    void *data,
+    struct wl_registry *wl_registry,
     uint32_t name,
-    const char* interface,
+    const char *interface,
     uint32_t version)
 {
-  struct state* state = data;
+  struct state *state = data;
   int error = 0;
 
   if (strcmp(interface, wl_compositor_interface.name) == 0) {
@@ -260,8 +257,8 @@ handle_wl_registry_global(
 
 static void
 handle_wl_registry_global_remove(
-    void* data,
-    struct wl_registry* wl_registry,
+    void *data,
+    struct wl_registry *wl_registry,
     uint32_t name)
 {
   (void)data;
@@ -276,7 +273,7 @@ static const struct wl_registry_listener registry_listener = {
 };
 
 static void
-cleanup_x11_event(xcb_generic_event_t** event)
+cleanup_x11_event(xcb_generic_event_t **event)
 {
   if (*event != NULL) {
     free(*event);
@@ -285,9 +282,9 @@ cleanup_x11_event(xcb_generic_event_t** event)
 }
 
 static int
-handle_x11_event(xcb_connection_t* x11)
+handle_x11_event(xcb_connection_t *x11)
 {
-  CLEANUP(x11_event) xcb_generic_event_t* event = NULL;
+  CLEANUP(x11_event) xcb_generic_event_t *event = NULL;
   event = xcb_poll_for_event(x11);
   if (event == NULL) {
     fputs("xcb_poll_for_event: No events\n", stderr);
@@ -302,44 +299,44 @@ handle_x11_event(xcb_connection_t* x11)
       xcb_event_get_label(event_type));
 
   switch (event_type) {
-    case 0: { /* X_Error */
-      /* ideally i could just use XmuPrintDefaultErrorMessage, but that wants an
-       * Xlib Display while i only have an xcb_connection_t */
-      xcb_generic_error_t* event_error = (xcb_generic_error_t*)event;
-      fprintf(
-          stderr,
-          "  Error code:    %" PRIu8 " (%s)\n",
-          event_error->error_code,
-          xcb_event_get_error_label(event_error->error_code));
-      fprintf(
-          stderr,
-          "  Major opcode:  %" PRIu8 " (%s)\n",
-          event_error->major_code,
-          xcb_event_get_request_label(event_error->major_code));
-      fprintf(
-          stderr,
-          "  Resource ID:   %#" PRIx32 "\n",
-          event_error->resource_id);
-      /* Xlib also shows the "current" serial, but xcb doesn't seem to expose
-       * this for us at all */
-      fprintf(stderr, "  Serial number: %" PRIu16 "\n", event_error->sequence);
-      /* break the event loop on any X_Error. Xlib makes an exception for
-       * error_code 17 BadImplementation (server does not implement operation)
-       * but i don't care */
-      return -1;
-    }
-
-    default: {
-      fprintf(stderr, "  Serial number: %" PRIu16 "\n", event->sequence);
-      break;
-    }
+  case 0: { /* X_Error */
+    /* ideally i could just use XmuPrintDefaultErrorMessage, but that wants an
+     * Xlib Display while i only have an xcb_connection_t */
+    xcb_generic_error_t *event_error = (xcb_generic_error_t *)event;
+    fprintf(
+        stderr,
+        "  Error code:    %" PRIu8 " (%s)\n",
+        event_error->error_code,
+        xcb_event_get_error_label(event_error->error_code));
+    fprintf(
+        stderr,
+        "  Major opcode:  %" PRIu8 " (%s)\n",
+        event_error->major_code,
+        xcb_event_get_request_label(event_error->major_code));
+    fprintf(
+        stderr,
+        "  Resource ID:   %#" PRIx32 "\n",
+        event_error->resource_id);
+    /* Xlib also shows the "current" serial, but xcb doesn't seem to expose this
+     * for us at all */
+    fprintf(stderr, "  Serial number: %" PRIu16 "\n", event_error->sequence);
+    /* break the event loop on any X_Error. Xlib makes an exception for
+     * error_code 17 BadImplementation (server does not implement operation) but
+     * i don't care */
+    return -1;
   }
+
+  default: {
+    fprintf(stderr, "  Serial number: %" PRIu16 "\n", event->sequence);
+    break;
+  }
+  } /* switch (event_type) */
 
   return 1;
 }
 
 static void
-cleanup_wl_display(struct wl_display** wl)
+cleanup_wl_display(struct wl_display **wl)
 {
   if (*wl != NULL) {
     wl_display_disconnect(*wl);
@@ -348,7 +345,7 @@ cleanup_wl_display(struct wl_display** wl)
 }
 
 static void
-cleanup_wl_registry(struct wl_registry** wl_registry)
+cleanup_wl_registry(struct wl_registry **wl_registry)
 {
   if (*wl_registry != NULL) {
     wl_registry_destroy(*wl_registry);
@@ -357,7 +354,7 @@ cleanup_wl_registry(struct wl_registry** wl_registry)
 }
 
 static void
-cleanup_x11_connection(xcb_connection_t** x11)
+cleanup_x11_connection(xcb_connection_t **x11)
 {
   if (*x11 != NULL) {
     xcb_disconnect(*x11);
@@ -366,7 +363,7 @@ cleanup_x11_connection(xcb_connection_t** x11)
 }
 
 int
-main(int argc, char** argv)
+main(int argc, char **argv)
 {
   int error = 0;
 
@@ -374,16 +371,16 @@ main(int argc, char** argv)
     fprintf(stderr, "Usage: %s <path>\n", argv[0]);
     return EXIT_FAILURE;
   }
-  const char* screensaver_path = argv[1];
+  const char *screensaver_path = argv[1];
 
-  CLEANUP(wl_display) struct wl_display* wl = NULL;
+  CLEANUP(wl_display) struct wl_display *wl = NULL;
   wl = wl_display_connect(NULL);
   if (wl == NULL) {
     perror("wl_display_connect");
     return EXIT_FAILURE;
   }
 
-  CLEANUP(wl_registry) struct wl_registry* wl_registry = NULL;
+  CLEANUP(wl_registry) struct wl_registry *wl_registry = NULL;
   wl_registry = wl_display_get_registry(wl);
   if (wl_registry == NULL) {
     perror("wl_display_get_registry");
@@ -402,7 +399,7 @@ main(int argc, char** argv)
     return EXIT_FAILURE;
   }
 
-  CLEANUP(x11_connection) xcb_connection_t* x11 = NULL;
+  CLEANUP(x11_connection) xcb_connection_t *x11 = NULL;
   int screen_preferred_n = 0;
   x11 = xcb_connect(NULL, &screen_preferred_n);
   error = xcb_connection_has_error(x11);
@@ -411,7 +408,7 @@ main(int argc, char** argv)
     return EXIT_FAILURE;
   }
 
-  xcb_screen_t* screen_preferred = xcb_aux_get_screen(x11, screen_preferred_n);
+  xcb_screen_t *screen_preferred = xcb_aux_get_screen(x11, screen_preferred_n);
   if (screen_preferred == NULL) {
     fputs("xcb_aux_get_screen\n", stderr);
     return EXIT_FAILURE;
@@ -464,14 +461,8 @@ main(int argc, char** argv)
   bool got_x11_error = false, got_x11_events = false;
   int poll_ready = 1;
   struct pollfd connection_poll[2] = {
-    {
-        .fd = wl_display_get_fd(wl),
-        .events = POLLIN,
-    },
-    {
-        .fd = xcb_get_file_descriptor(x11),
-        .events = POLLIN,
-    },
+    { .fd = wl_display_get_fd(wl), .events = POLLIN },
+    { .fd = xcb_get_file_descriptor(x11), .events = POLLIN },
   };
   while (poll_ready > 0) {
     /* xcb_poll_for_event processes one event at a time, handle it first so we

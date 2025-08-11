@@ -2,10 +2,23 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-BasedOnStyle: Mozilla
-# don't waste so much horizontal space, but keep aligned
 AlignAfterOpenBracket: AlwaysBreak
-# commit to the break
 AllowAllArgumentsOnNextLine: false
-# distinguish continuations from indents (like LLVM)
+AllowAllParametersOfDeclarationOnNextLine: false
+BinPackArguments: false
+BinPackParameters: false
+BraceWrapping:
+  AfterEnum: false
+  AfterFunction: true
+  AfterStruct: true
+BreakAfterReturnType: TopLevel
+BreakBeforeBraces: Custom
 ContinuationIndentWidth: 4
+Cpp11BracedListStyle: false
+IndentCaseLabels: false
+PointerAlignment: Right
+
+# notes:
+# - alignment/binpacking/onelining of array/struct initializers doesn't
+#   seem to be controllable by this config, instead you need to manually
+#   massage it with trailing commas until the formatter gets the message
