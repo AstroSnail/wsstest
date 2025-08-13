@@ -8,11 +8,23 @@
   imports = [ inputs.treefmt-nix.flakeModule ];
 
   perSystem = {
-    treefmt.programs.nixfmt.enable = true;
+    treefmt.programs = {
+      nixfmt = {
+        enable = true;
+        strict = true;
+        # nixfmt uses this as a "soft cap". i don't know what the hard cap is,
+        # but this seems to keep lines within 80 characters.
+        # TODO: also add it to git-hooks, otherwise it will complain.
+        # width = 72;
+      };
 
-    treefmt.programs.clang-format.enable = true;
+      clang-format.enable = true;
 
-    # treefmt.programs.rustfmt.enable = true;
-    # treefmt.programs.rustfmt.edition = config.cargo.package.edition;
+      # rustfmt.enable = true;
+      # rustfmt.edition = config.cargo.package.edition;
+
+      shellcheck.enable = true;
+      shfmt.enable = true;
+    };
   };
 }

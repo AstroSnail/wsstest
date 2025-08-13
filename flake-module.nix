@@ -2,7 +2,12 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-{ config, inputs, ... }:
+{
+  config,
+  inputs,
+  lib,
+  ...
+}:
 
 {
   imports = [
@@ -17,26 +22,12 @@
     { pkgs, system, ... }@perSystem:
 
     let
-      wsstest = pkgs.callPackage ./wsstest.nix { };
-      wsstest-clang = wsstest.override { stdenv = pkgs.clangStdenv; };
+      inherit (pkgs) wayland-protocols-client wsstest wsstest-clang;
 
-      wsstest-dev = pkgs.mkShell {
-        packages = wsstest.buildInputs ++ [
-          pkgs.clang-tools
-          pkgs.gdb
-          pkgs.lldb
-          pkgs.reuse
-          pkgs.statix
-          pkgs.valgrind
-        ];
-        env = {
-          HACKS = "${pkgs.xscreensaver}/libexec/xscreensaver";
-          WAYLAND_DEBUG = 1;
-        };
-        shellHook = perSystem.config.pre-commit.installationScript;
-      };
+      wsstest-dev = pkgs.wsstest-dev.overrideAttrs (
+        _final: _prev: { shellHook = perSystem.config.pre-commit.installationScript; }
+      );
 
-      inherit (config.flake) overlays;
       treefmt = perSystem.config.treefmt.build.wrapper;
 
     in
@@ -44,7 +35,7 @@
       _module.args.pkgs = import inputs.nixpkgs {
         inherit system;
         # config.allowUnfree = true;
-        overlays = [ overlays.default ];
+        overlays = lib.attrValues config.flake.overlays;
       };
 
       devShells = {
@@ -55,7 +46,7 @@
       formatter = treefmt;
 
       packages = {
-        inherit wsstest wsstest-clang;
+        inherit wayland-protocols-client wsstest wsstest-clang;
         default = wsstest;
       };
     };

@@ -21,6 +21,9 @@
           clang-format.enable = true;
           # TODO
           # clang-tidy.enable = true;
+
+          shellcheck.enable = true;
+          shfmt.enable = true;
         };
       }
 

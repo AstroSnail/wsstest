@@ -10,6 +10,17 @@ max_line_length = 80
 [*.md]
 max_line_length = 72
 
+[*.nix]
+indent_style = space
+indent_size = 2
+max_line_length = 80
+
+[*.sh]
+indent_style = space
+indent_size = 2
+max_line_length = 80
+
 [CMakeLists.txt]
-indent_style = tab
+indent_style = space
+indent_size = 2
 max_line_length = 80

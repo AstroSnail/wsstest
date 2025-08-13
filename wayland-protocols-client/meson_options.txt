@@ -1,0 +1,5 @@
+# SPDX-FileCopyrightText: 2025 AstroSnail <astrosnail@protonmail.com>
+#
+# SPDX-License-Identifier: MIT
+
+option('extensions', description: 'List of extensions to build', type: 'array', value: [])

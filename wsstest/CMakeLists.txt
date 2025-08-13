@@ -15,5 +15,10 @@ add_executable(wsstest main.c)
 # doesn't add -std=c99
 # target_compile_features(wsstest PRIVATE c_std_99)
 target_compile_options(wsstest PRIVATE -Wall -Wextra -Wpedantic)
-target_link_libraries(wsstest wayland-client xcb xcb-util)
+target_link_libraries(
+    wsstest
+    wayland-client
+    wayland-protocols-client
+    xcb
+    xcb-util)
 install(TARGETS wsstest)

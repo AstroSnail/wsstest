@@ -20,6 +20,7 @@ extern char **environ;
 
 #include <wayland-client-core.h>
 #include <wayland-client-protocol.h>
+#include <wayland-protocols-client/ext-session-lock-v1.h>
 #include <xcb/xcb.h>
 #include <xcb/xcb_util.h>
 
@@ -30,6 +31,7 @@ struct state
 {
   struct wl_compositor *compositor;
   struct wl_shm *shm;
+  struct ext_session_lock_manager_v1 *session_lock_manager;
 };
 
 static void
@@ -43,6 +45,11 @@ cleanup_state(struct state *state)
   if (state->shm != NULL) {
     wl_shm_destroy(state->shm);
     state->shm = NULL;
+  }
+
+  if (state->session_lock_manager != NULL) {
+    ext_session_lock_manager_v1_destroy(state->session_lock_manager);
+    state->session_lock_manager = NULL;
   }
 }
 
@@ -222,6 +229,19 @@ handle_wl_registry_global(
     error = wl_shm_add_listener(state->shm, &shm_listener, state);
     if (error != 0) {
       fputs("wl_shm_add_listener: listener already set\n", stderr);
+    }
+
+    return;
+  }
+
+  if (strcmp(interface, ext_session_lock_manager_v1_interface.name) == 0) {
+    state->session_lock_manager = wl_registry_bind(
+        wl_registry,
+        name,
+        &ext_session_lock_manager_v1_interface,
+        1);
+    if (state->session_lock_manager == NULL) {
+      perror(interface);
     }
 
     return;
