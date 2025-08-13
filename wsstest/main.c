@@ -200,25 +200,11 @@ handle_wl_registry_global(
 {
   struct state *state = data;
   int error = 0;
+  (void)version;
 
   if (strcmp(interface, wl_compositor_interface.name) == 0) {
-    /* TODO: am i doing this right? */
-    /* uint32_t iface_version = wl_compositor_interface.version; */
-    uint32_t iface_version = 4;
-    if (version != iface_version) {
-      fprintf(
-          stderr,
-          "%s version %" PRIu32 " != %" PRIu32 "\n",
-          interface,
-          version,
-          iface_version);
-    }
-
-    state->compositor = wl_registry_bind(
-        wl_registry,
-        name,
-        &wl_compositor_interface,
-        iface_version);
+    state->compositor =
+        wl_registry_bind(wl_registry, name, &wl_compositor_interface, 4);
     if (state->compositor == NULL) {
       perror(interface);
     }
@@ -227,20 +213,7 @@ handle_wl_registry_global(
   }
 
   if (strcmp(interface, wl_shm_interface.name) == 0) {
-    /* TODO: am i doing this right? */
-    /* uint32_t iface_version = wl_shm_interface.version; */
-    uint32_t iface_version = 1;
-    if (version != iface_version) {
-      fprintf(
-          stderr,
-          "%s version %" PRIu32 " != %" PRIu32 "\n",
-          interface,
-          version,
-          iface_version);
-    }
-
-    state->shm =
-        wl_registry_bind(wl_registry, name, &wl_shm_interface, iface_version);
+    state->shm = wl_registry_bind(wl_registry, name, &wl_shm_interface, 1);
     if (state->shm == NULL) {
       perror(interface);
       return;
