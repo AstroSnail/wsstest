@@ -30,6 +30,8 @@ extern char **environ;
 struct state
 {
   struct wl_compositor *compositor;
+  size_t n_outputs;
+  struct wl_output *outputs[3]; /* TODO: sensible dynamic allocation */
   struct wl_shm *shm;
   struct ext_session_lock_manager_v1 *session_lock_manager;
 };
@@ -215,6 +217,24 @@ handle_wl_registry_global(
     if (state->compositor == NULL) {
       perror(interface);
     }
+
+    return;
+  }
+
+  if (strcmp(interface, wl_output_interface.name) == 0) {
+    size_t n = state->n_outputs;
+    if (n >= 3) {
+      return;
+    }
+
+    state->outputs[n] =
+        wl_registry_bind(wl_registry, name, &wl_output_interface, 4);
+    if (state->outputs[n] == NULL) {
+      perror(interface);
+      return;
+    }
+
+    state->n_outputs = n + 1;
 
     return;
   }
