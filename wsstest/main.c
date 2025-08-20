@@ -188,19 +188,24 @@ read_wl_events(struct wl_display *wl)
 static void
 handle_wl_shm_format(void *data, struct wl_shm *wl_shm, uint32_t format)
 {
+  char fourcc[4] = { 0 };
   (void)data;
   (void)wl_shm;
-  fputs("Wayland shm_format\n", stderr);
-  fprintf(stderr, "  format: %#" PRIx32 "\n", format);
+
   if (format > 1) {
-    fprintf(
-        stderr,
-        "  fourCC: %c%c%c%c\n",
-        format,
-        format >> 8,
-        format >> 16,
-        format >> 24);
+    fourcc[0] = format;
+    fourcc[1] = format >> 8;
+    fourcc[2] = format >> 16;
+    fourcc[3] = format >> 24;
   }
+
+  fprintf(
+      stderr,
+      "Wayland shm_format\n"
+      "  format: %#" PRIx32 "\n"
+      "  fourCC: %.4s\n",
+      format,
+      fourcc);
 }
 
 static const struct wl_shm_listener shm_listener = {
@@ -284,8 +289,12 @@ handle_wl_registry_global_remove(
 {
   (void)data;
   (void)wl_registry;
-  fputs("Wayland global_remove\n", stderr);
-  fprintf(stderr, "  name: %" PRIu32 "\n", name);
+
+  fprintf(
+      stderr,
+      "Wayland global_remove\n"
+      "  name: %" PRIu32 "\n",
+      name);
 }
 
 static const struct wl_registry_listener registry_listener = {
@@ -326,21 +335,18 @@ handle_x11_event(xcb_connection_t *x11)
     xcb_generic_error_t *event_error = (xcb_generic_error_t *)event;
     fprintf(
         stderr,
-        "  Error code:    %" PRIu8 " (%s)\n",
+        "  Error code:    %" PRIu8 " (%s)\n"
+        "  Major opcode:  %" PRIu8 " (%s)\n"
+        "  Resource ID:   %#" PRIx32 "\n"
+        /* Xlib also shows the "current" serial, but xcb doesn't seem to expose
+         * this for us at all */
+        "  Serial number: %" PRIu16 "\n",
         event_error->error_code,
-        xcb_event_get_error_label(event_error->error_code));
-    fprintf(
-        stderr,
-        "  Major opcode:  %" PRIu8 " (%s)\n",
+        xcb_event_get_error_label(event_error->error_code),
         event_error->major_code,
-        xcb_event_get_request_label(event_error->major_code));
-    fprintf(
-        stderr,
-        "  Resource ID:   %#" PRIx32 "\n",
-        event_error->resource_id);
-    /* Xlib also shows the "current" serial, but xcb doesn't seem to expose this
-     * for us at all */
-    fprintf(stderr, "  Serial number: %" PRIu16 "\n", event_error->sequence);
+        xcb_event_get_request_label(event_error->major_code),
+        event_error->resource_id,
+        event_error->sequence);
     /* break the event loop on any X_Error. Xlib makes an exception for
      * error_code 17 BadImplementation (server does not implement operation) but
      * i don't care */
