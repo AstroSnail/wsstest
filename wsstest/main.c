@@ -44,6 +44,12 @@ cleanup_state(struct state *state)
     state->compositor = NULL;
   }
 
+  for (size_t i = 0; i < state->n_outputs; i++) {
+    wl_output_destroy(state->outputs[i]);
+    state->outputs[i] = NULL;
+  }
+  state->n_outputs = 0;
+
   if (state->shm != NULL) {
     wl_shm_destroy(state->shm);
     state->shm = NULL;
