@@ -479,7 +479,7 @@ main(int argc, char **argv)
    * poll instead. make sure to handle all pending events before polling the
    * connection, otherwise we might leave events stuck in a queue for a while.
    */
-  bool got_x11_error = false, got_x11_events = false;
+  bool got_x11_error = false;
   int poll_ready = 1;
   struct pollfd connection_poll[2] = {
     { .fd = wl_display_get_fd(wl), .events = POLLIN },
@@ -495,7 +495,6 @@ main(int argc, char **argv)
       continue;
     }
     if (error > 0) {
-      got_x11_events = true;
       continue;
     }
     if (got_x11_error) {
@@ -504,16 +503,9 @@ main(int argc, char **argv)
     }
 
     /* flush requests that an event handler might have made */
-    error = 1;
-    if (got_x11_events) {
-      error = xcb_flush(x11);
-      fprintf(stderr, "xcb_flush: %d\n", error);
-      got_x11_events = false;
-    }
-    if (error <= 0) {
-      break;
-    }
-    error = 0;
+    error = xcb_flush(x11);
+    fprintf(stderr, "xcb_flush: %d\n", error);
+    /* ignore flush errors for now, we check connection errors further down */
 
     /* xcb_poll_for_event also checks the connection for new events, but
      * wl_display_dispatch_pending doesn't, so we need to read for it first */
@@ -529,12 +521,7 @@ main(int argc, char **argv)
     }
     fprintf(stderr, "wl_display_dispatch_pending: %d\n", error);
 
-    if (error > 0) {
-      error = flush_wl(wl);
-    }
-    if (error != 0) {
-      break;
-    }
+    error = flush_wl(wl);
 
     /* check for errors *after* trying to handle events, because errors are only
      * noticed after reading events */
