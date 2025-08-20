@@ -78,12 +78,12 @@ cleanup_state(struct state *state)
   }
 
   if (state->shm != NULL) {
-    wl_shm_destroy(state->shm);
+    wl_shm_release(state->shm);
     state->shm = NULL;
   }
 
   for (size_t i = 0; i < state->n_outputs; i++) {
-    wl_output_destroy(state->outputs[i]);
+    wl_output_release(state->outputs[i]);
     state->outputs[i] = NULL;
   }
   state->n_outputs = 0;
@@ -324,7 +324,7 @@ handle_wl_registry_global(
     }
 
     state->outputs[n] =
-        wl_registry_bind(wl_registry, name, &wl_output_interface, 1);
+        wl_registry_bind(wl_registry, name, &wl_output_interface, 3);
     if (state->outputs[n] == NULL) {
       perror(interface);
       state->error = -1;
@@ -337,7 +337,7 @@ handle_wl_registry_global(
   }
 
   if (strcmp(interface, wl_shm_interface.name) == 0) {
-    state->shm = wl_registry_bind(wl_registry, name, &wl_shm_interface, 1);
+    state->shm = wl_registry_bind(wl_registry, name, &wl_shm_interface, 2);
     if (state->shm == NULL) {
       perror(interface);
       state->error = -1;
