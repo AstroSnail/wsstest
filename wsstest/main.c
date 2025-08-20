@@ -29,6 +29,7 @@ extern char **environ;
 
 struct state
 {
+  /* globals */
   struct wl_compositor *compositor;
   size_t n_outputs;
   struct wl_output *outputs[3]; /* TODO: sensible dynamic allocation */
@@ -39,9 +40,15 @@ struct state
 static void
 cleanup_state(struct state *state)
 {
-  if (state->compositor != NULL) {
-    wl_compositor_destroy(state->compositor);
-    state->compositor = NULL;
+  /* globals */
+  if (state->session_lock_manager != NULL) {
+    ext_session_lock_manager_v1_destroy(state->session_lock_manager);
+    state->session_lock_manager = NULL;
+  }
+
+  if (state->shm != NULL) {
+    wl_shm_destroy(state->shm);
+    state->shm = NULL;
   }
 
   for (size_t i = 0; i < state->n_outputs; i++) {
@@ -50,14 +57,9 @@ cleanup_state(struct state *state)
   }
   state->n_outputs = 0;
 
-  if (state->shm != NULL) {
-    wl_shm_destroy(state->shm);
-    state->shm = NULL;
-  }
-
-  if (state->session_lock_manager != NULL) {
-    ext_session_lock_manager_v1_destroy(state->session_lock_manager);
-    state->session_lock_manager = NULL;
+  if (state->compositor != NULL) {
+    wl_compositor_destroy(state->compositor);
+    state->compositor = NULL;
   }
 }
 
