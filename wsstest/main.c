@@ -200,11 +200,22 @@ handle_wl_shm_format(void *data, struct wl_shm *wl_shm, uint32_t format)
   (void)wl_shm;
 
   char fourcc[4] = { 0 };
-  if (format > 1) {
-    fourcc[0] = format;
-    fourcc[1] = format >> 8;
-    fourcc[2] = format >> 16;
-    fourcc[3] = format >> 24;
+  switch (format) {
+    case WL_SHM_FORMAT_ARGB8888: {
+      memcpy(fourcc, "AR24", 4);
+      break;
+    }
+    case WL_SHM_FORMAT_XRGB8888: {
+      memcpy(fourcc, "XR24", 4);
+      break;
+    }
+    default: {
+      fourcc[0] = format;
+      fourcc[1] = format >> 8;
+      fourcc[2] = format >> 16;
+      fourcc[3] = format >> 24;
+      break;
+    }
   }
 
   fprintf(
