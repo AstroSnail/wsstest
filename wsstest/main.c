@@ -31,6 +31,12 @@ extern char **environ;
 #define COUNTOF(array) (sizeof(array) / sizeof(array)[0])
 
 static const char shm_name[] = "/wsstest_shm";
+enum {
+  width = 1024,
+  height = 768,
+  stride = width * sizeof(uint32_t),
+  shm_pool_size = height * stride * 2,
+};
 
 struct state
 {
@@ -45,6 +51,7 @@ struct state
   struct wl_surface *surface;
   /* wl_shm */
   int shm_fd;
+  uint8_t *shm_data;
 };
 
 static void
@@ -54,12 +61,18 @@ init_state(struct state *state)
    * pointer fields are NULL. only fields that should be initialized another way
    * are changed here */
   state->shm_fd = -1;
+  state->shm_data = MAP_FAILED;
 }
 
 static void
 cleanup_state(struct state *state)
 {
   /* wl_shm */
+  if (state->shm_data != MAP_FAILED) {
+    munmap(state->shm_data, shm_pool_size);
+    state->shm_data = MAP_FAILED;
+  }
+
   if (state->shm_fd >= 0) {
     close(state->shm_fd);
     state->shm_fd = -1;
@@ -289,6 +302,26 @@ on_bind_wl_shm(struct state *state)
   if (error != 0) {
     perror("shm_unlink");
     /* not fatal */
+  }
+
+  error = ftruncate(state->shm_fd, shm_pool_size);
+  if (error != 0) {
+    perror("ftruncate");
+    state->error = -1;
+    return;
+  }
+
+  state->shm_data = mmap(
+      NULL,
+      shm_pool_size,
+      PROT_READ | PROT_WRITE,
+      MAP_SHARED,
+      state->shm_fd,
+      0);
+  if (state->shm_data == MAP_FAILED) {
+    perror("mmap");
+    state->error = -1;
+    return;
   }
 }
 
