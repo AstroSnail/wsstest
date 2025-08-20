@@ -226,7 +226,7 @@ handle_wl_registry_global(
 
   if (strcmp(interface, wl_compositor_interface.name) == 0) {
     state->compositor =
-        wl_registry_bind(wl_registry, name, &wl_compositor_interface, 4);
+        wl_registry_bind(wl_registry, name, &wl_compositor_interface, 1);
     if (state->compositor == NULL) {
       perror(interface);
     }
@@ -241,7 +241,7 @@ handle_wl_registry_global(
     }
 
     state->outputs[n] =
-        wl_registry_bind(wl_registry, name, &wl_output_interface, 4);
+        wl_registry_bind(wl_registry, name, &wl_output_interface, 1);
     if (state->outputs[n] == NULL) {
       perror(interface);
       return;
