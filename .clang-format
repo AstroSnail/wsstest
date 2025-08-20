@@ -22,3 +22,6 @@ PointerAlignment: Right
 # - alignment/binpacking/onelining of array/struct initializers doesn't
 #   seem to be controllable by this config, instead you need to manually
 #   massage it with trailing commas until the formatter gets the message
+# - WebKit's style of breaking CLEANUP attributes before variable
+#   declarations seems to be triggered by ColumnLimit: 0, which is
+#   undesirable.
