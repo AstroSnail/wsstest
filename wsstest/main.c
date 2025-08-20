@@ -67,14 +67,22 @@ init_state(struct state *state)
 static void
 cleanup_state(struct state *state)
 {
+  int error = 0;
+
   /* wl_shm */
   if (state->shm_data != MAP_FAILED) {
-    munmap(state->shm_data, shm_pool_size);
+    error = munmap(state->shm_data, shm_pool_size);
+    if (error != 0) {
+      perror("munmap");
+    }
     state->shm_data = MAP_FAILED;
   }
 
   if (state->shm_fd >= 0) {
-    close(state->shm_fd);
+    error = close(state->shm_fd);
+    if (error != 0) {
+      perror("close");
+    }
     state->shm_fd = -1;
   }
 
