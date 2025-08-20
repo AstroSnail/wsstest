@@ -35,11 +35,19 @@ struct state
   struct wl_output *outputs[3]; /* TODO: sensible dynamic allocation */
   struct wl_shm *shm;
   struct ext_session_lock_manager_v1 *session_lock_manager;
+  /* wl_compositor */
+  struct wl_surface *surface;
 };
 
 static void
 cleanup_state(struct state *state)
 {
+  /* wl_compositor */
+  if (state->surface != NULL) {
+    wl_surface_destroy(state->surface);
+    state->surface = NULL;
+  }
+
   /* globals */
   if (state->session_lock_manager != NULL) {
     ext_session_lock_manager_v1_destroy(state->session_lock_manager);
@@ -188,10 +196,10 @@ read_wl_events(struct wl_display *wl)
 static void
 handle_wl_shm_format(void *data, struct wl_shm *wl_shm, uint32_t format)
 {
-  char fourcc[4] = { 0 };
   (void)data;
   (void)wl_shm;
 
+  char fourcc[4] = { 0 };
   if (format > 1) {
     fourcc[0] = format;
     fourcc[1] = format >> 8;
@@ -213,6 +221,26 @@ static const struct wl_shm_listener shm_listener = {
 };
 
 static void
+on_bind_wl_compositor(struct state *state)
+{
+  state->surface = wl_compositor_create_surface(state->compositor);
+  if (state->compositor == NULL) {
+    perror("wl_compositor_create_surface");
+    return;
+  }
+}
+
+static void
+on_bind_wl_shm(struct state *state)
+{
+  int error = wl_shm_add_listener(state->shm, &shm_listener, state);
+  if (error != 0) {
+    fputs("wl_shm_add_listener: listener already set\n", stderr);
+    return;
+  }
+}
+
+static void
 handle_wl_registry_global(
     void *data,
     struct wl_registry *wl_registry,
@@ -221,7 +249,6 @@ handle_wl_registry_global(
     uint32_t version)
 {
   struct state *state = data;
-  int error = 0;
   (void)version;
 
   if (strcmp(interface, wl_compositor_interface.name) == 0) {
@@ -229,7 +256,10 @@ handle_wl_registry_global(
         wl_registry_bind(wl_registry, name, &wl_compositor_interface, 1);
     if (state->compositor == NULL) {
       perror(interface);
+      return;
     }
+
+    on_bind_wl_compositor(state);
 
     return;
   }
@@ -259,10 +289,7 @@ handle_wl_registry_global(
       return;
     }
 
-    error = wl_shm_add_listener(state->shm, &shm_listener, state);
-    if (error != 0) {
-      fputs("wl_shm_add_listener: listener already set\n", stderr);
-    }
+    on_bind_wl_shm(state);
 
     return;
   }
@@ -275,6 +302,7 @@ handle_wl_registry_global(
         1);
     if (state->session_lock_manager == NULL) {
       perror(interface);
+      return;
     }
 
     return;
