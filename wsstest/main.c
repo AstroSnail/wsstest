@@ -7,6 +7,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include <errno.h>
+#include <fcntl.h>
 #include <inttypes.h>
 #include <poll.h>
 #include <signal.h>
@@ -15,7 +16,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
 #include <sys/wait.h>
+#include <unistd.h>
 extern char **environ;
 
 #include <wayland-client-core.h>
@@ -27,8 +30,11 @@ extern char **environ;
 #define CLEANUP(how) __attribute__((cleanup(cleanup_##how)))
 #define COUNTOF(array) (sizeof(array) / sizeof(array)[0])
 
+static const char shm_name[] = "/wsstest_shm";
+
 struct state
 {
+  int error;
   /* globals */
   struct wl_compositor *compositor;
   size_t n_outputs;
@@ -37,11 +43,28 @@ struct state
   struct ext_session_lock_manager_v1 *session_lock_manager;
   /* wl_compositor */
   struct wl_surface *surface;
+  /* wl_shm */
+  int shm_fd;
 };
+
+static void
+init_state(struct state *state)
+{
+  /* assume it has been zero-initialized already, so number fields are 0 and
+   * pointer fields are NULL. only fields that should be initialized another way
+   * are changed here */
+  state->shm_fd = -1;
+}
 
 static void
 cleanup_state(struct state *state)
 {
+  /* wl_shm */
+  if (state->shm_fd >= 0) {
+    close(state->shm_fd);
+    state->shm_fd = -1;
+  }
+
   /* wl_compositor */
   if (state->surface != NULL) {
     wl_surface_destroy(state->surface);
@@ -83,7 +106,7 @@ launch_screensaver(xcb_window_t window, const char *screensaver_path)
   setenv("XSCREENSAVER_WINDOW", window_id_string, 1);
 
   /*
-   * wl and x11 sockets are cloexec, no need to close explicitly.
+   * wl, x11 and shm_fd are cloexec, no need to close explicitly.
    *
    * argv is specified to not be modified by posix_spawn (described in the
    * manual for the exec family of functions, explained under Rationale) so the
@@ -237,6 +260,7 @@ on_bind_wl_compositor(struct state *state)
   state->surface = wl_compositor_create_surface(state->compositor);
   if (state->compositor == NULL) {
     perror("wl_compositor_create_surface");
+    state->error = -1;
     return;
   }
 }
@@ -244,10 +268,27 @@ on_bind_wl_compositor(struct state *state)
 static void
 on_bind_wl_shm(struct state *state)
 {
-  int error = wl_shm_add_listener(state->shm, &shm_listener, state);
+  int error = 0;
+
+  error = wl_shm_add_listener(state->shm, &shm_listener, state);
   if (error != 0) {
     fputs("wl_shm_add_listener: listener already set\n", stderr);
+    state->error = -1;
     return;
+  }
+
+  state->shm_fd =
+      shm_open(shm_name, O_RDWR | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
+  if (state->shm_fd < 0) {
+    perror("shm_open");
+    state->error = -1;
+    return;
+  }
+
+  error = shm_unlink(shm_name);
+  if (error != 0) {
+    perror("shm_unlink");
+    /* not fatal */
   }
 }
 
@@ -267,6 +308,7 @@ handle_wl_registry_global(
         wl_registry_bind(wl_registry, name, &wl_compositor_interface, 1);
     if (state->compositor == NULL) {
       perror(interface);
+      state->error = -1;
       return;
     }
 
@@ -285,6 +327,7 @@ handle_wl_registry_global(
         wl_registry_bind(wl_registry, name, &wl_output_interface, 1);
     if (state->outputs[n] == NULL) {
       perror(interface);
+      state->error = -1;
       return;
     }
 
@@ -297,6 +340,7 @@ handle_wl_registry_global(
     state->shm = wl_registry_bind(wl_registry, name, &wl_shm_interface, 1);
     if (state->shm == NULL) {
       perror(interface);
+      state->error = -1;
       return;
     }
 
@@ -313,6 +357,7 @@ handle_wl_registry_global(
         1);
     if (state->session_lock_manager == NULL) {
       perror(interface);
+      state->error = -1;
       return;
     }
 
@@ -368,7 +413,7 @@ handle_x11_event(xcb_connection_t *x11)
       xcb_event_get_label(event_type));
 
   switch (event_type) {
-    case 0: { /* X_Error */
+    case 0: /* X_Error */ {
       /* ideally i could just use XmuPrintDefaultErrorMessage, but that wants an
        * Xlib Display while i only have an xcb_connection_t */
       xcb_generic_error_t *event_error = (xcb_generic_error_t *)event;
@@ -454,6 +499,7 @@ main(int argc, char **argv)
   }
 
   CLEANUP(state) struct state state = { 0 };
+  init_state(&state);
   error = wl_registry_add_listener(wl_registry, &registry_listener, &state);
   if (error != 0) {
     fputs("wl_registry_add_listener: listener already set\n", stderr);
@@ -567,6 +613,12 @@ main(int argc, char **argv)
     fprintf(stderr, "wl_display_dispatch_pending: %d\n", error);
 
     error = flush_wl(wl);
+
+    /* avoid getting stuck waiting for failed callbacks */
+    error = state.error;
+    if (error != 0) {
+      break;
+    }
 
     /* check for errors *after* trying to handle events, because errors are only
      * noticed after reading events */
