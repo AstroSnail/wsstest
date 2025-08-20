@@ -450,6 +450,8 @@ static void
 cleanup_wl_display(struct wl_display **wl)
 {
   if (*wl != NULL) {
+    flush_wl(*wl);
+
     wl_display_disconnect(*wl);
     *wl = NULL;
   }
@@ -467,7 +469,12 @@ cleanup_wl_registry(struct wl_registry **wl_registry)
 static void
 cleanup_x11_connection(xcb_connection_t **x11)
 {
+  int error = 0;
+
   if (*x11 != NULL) {
+    error = xcb_flush(*x11);
+    fprintf(stderr, "xcb_flush: %d\n", error);
+
     xcb_disconnect(*x11);
     *x11 = NULL;
   }
