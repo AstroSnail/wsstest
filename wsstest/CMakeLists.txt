@@ -18,7 +18,7 @@ target_compile_options(wsstest PRIVATE -Wall -Wextra -Wpedantic)
 target_link_libraries(
     wsstest
     wayland-client
-    wayland-protocols-client
+    wayland-client-protocols
     xcb
     xcb-util)
 install(TARGETS wsstest)

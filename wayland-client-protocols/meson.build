@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-project('wayland-protocols-client', 'c')
+project('wayland-client-protocols', 'c')
 
 pkgconfig = import('pkgconfig')
 
@@ -14,7 +14,7 @@ protocols_data = protocols_dep.get_variable(pkgconfig: 'pkgdatadir')
 scanner_dep = dependency('wayland-scanner')
 scanner_prog = find_program(scanner_dep.get_variable(pkgconfig: 'wayland_scanner'))
 
-header_install_dir = get_option('includedir') / 'wayland-protocols-client'
+header_install_dir = get_option('includedir') / 'wayland-client-protocols'
 
 extensions = get_option('extensions')
 codes = []
@@ -56,7 +56,7 @@ foreach protocol : extensions
 endforeach
 
 wayland_protocols_client_lib = library(
-  'wayland-protocols-client',
+  'wayland-client-protocols',
   sources: codes,
   dependencies: [ client_dep ],
   install: true,
@@ -67,5 +67,5 @@ pkgconfig.generate(
   name: 'Wayland Protocols Client',
   description: 'Wayland protocol extensions client side library',
   version: protocols_dep.version(),
-  filebase: 'wayland-protocols-client',
+  filebase: 'wayland-client-protocols',
 )

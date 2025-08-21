@@ -8,12 +8,12 @@
   stdenv,
   cmake,
   wayland,
-  wayland-protocols-client,
+  wayland-client-protocols,
   xorg,
 }:
 
 let
-  wayland-protocols-lib = wayland-protocols-client.override {
+  wayland-protocols-lib = wayland-client-protocols.override {
     extensions = [
       "xdg-shell"
       "ext-session-lock-v1"

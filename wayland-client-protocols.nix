@@ -30,10 +30,10 @@ let
 
 in
 stdenv.mkDerivation {
-  pname = "wayland-protocols-client";
+  pname = "wayland-client-protocols";
   inherit (wayland-protocols) version;
 
-  src = ./wayland-protocols-client;
+  src = ./wayland-client-protocols;
   nativeBuildInputs = [
     meson
     ninja

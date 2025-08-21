@@ -22,7 +22,7 @@
     { pkgs, system, ... }@perSystem:
 
     let
-      inherit (pkgs) wayland-protocols-client wsstest wsstest-clang;
+      inherit (pkgs) wayland-client-protocols wsstest wsstest-clang;
 
       wsstest-dev = pkgs.wsstest-dev.overrideAttrs (
         _final: _prev: { shellHook = perSystem.config.pre-commit.installationScript; }
@@ -46,7 +46,7 @@
       formatter = treefmt;
 
       packages = {
-        inherit wayland-protocols-client wsstest wsstest-clang;
+        inherit wayland-client-protocols wsstest wsstest-clang;
         default = wsstest;
       };
     };

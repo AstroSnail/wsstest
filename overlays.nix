@@ -8,8 +8,8 @@
     let
       maintainers = import ./maintainers.nix;
 
-      wayland-protocols-client = final: _prev: {
-        wayland-protocols-client = final.callPackage ./wayland-protocols-client.nix {
+      wayland-client-protocols = final: _prev: {
+        wayland-client-protocols = final.callPackage ./wayland-client-protocols.nix {
           inherit maintainers;
         };
       };
@@ -42,7 +42,7 @@
     in
     {
       inherit
-        wayland-protocols-client
+        wayland-client-protocols
         wsstest
         wsstest-clang
         wsstest-dev
