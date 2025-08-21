@@ -63,7 +63,7 @@ init_state(struct state *state)
   /*
    * assume it has been zero-initialized already, so number fields are 0 and
    * pointer fields are NULL. only fields that should be initialized another way
-   * are changed here
+   * are changed here.
    */
   state->shm_fd = -1;
   state->shm_data = MAP_FAILED;
@@ -510,7 +510,7 @@ handle_x11_event(xcb_connection_t *x11)
       /*
        * break the event loop on any X_Error. Xlib makes an exception for
        * error_code 17 BadImplementation (server does not implement operation)
-       * but i don't care
+       * but i don't care.
        */
       return -1;
     }
