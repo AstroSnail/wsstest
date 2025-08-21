@@ -140,7 +140,11 @@ launch_screensaver(xcb_window_t window, const char *screensaver_path)
   /* * 2 for nybbles (halves of bytes), + 3 for "0x" and NUL terminator */
   char window_id_string[sizeof window * 2 + 3] = { 0 };
   snprintf(window_id_string, COUNTOF(window_id_string), "%#" PRIx32, window);
-  setenv("XSCREENSAVER_WINDOW", window_id_string, 1);
+  error = setenv("XSCREENSAVER_WINDOW", window_id_string, 1);
+  if (error != 0) {
+    perror("setenv");
+    return -1;
+  }
 
   /*
    * wl, x11 and shm_fd are cloexec, no need to close explicitly.
