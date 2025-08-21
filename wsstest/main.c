@@ -57,9 +57,11 @@ struct state
 static void
 init_state(struct state *state)
 {
-  /* assume it has been zero-initialized already, so number fields are 0 and
+  /*
+   * assume it has been zero-initialized already, so number fields are 0 and
    * pointer fields are NULL. only fields that should be initialized another way
-   * are changed here */
+   * are changed here
+   */
   state->shm_fd = -1;
   state->shm_data = MAP_FAILED;
 }
@@ -136,16 +138,17 @@ launch_screensaver(xcb_window_t window, const char *screensaver_path)
   pid_t screensaver_pid = 0;
   const char *const screensaver_argv[] = { screensaver_path, "--root", NULL };
   error = posix_spawn(
-      &screensaver_pid,
-      screensaver_path,
-      NULL,
-      NULL,
-      (char *const *)screensaver_argv,
-      environ);
+      /*          pid */ &screensaver_pid,
+      /*         path */ screensaver_path,
+      /* file_actions */ NULL,
+      /*        attrp */ NULL,
+      /*         argv */ (char *const *)screensaver_argv,
+      /*         envp */ environ);
   if (error != 0) {
     perror("posix_spawn");
     return -1;
   }
+  fprintf(stderr, "screensaver_pid: %ld\n", (long)screensaver_pid);
 
   return screensaver_pid;
 }
@@ -182,6 +185,50 @@ cleanup_screensaver(pid_t *screensaver_pid)
   }
 
   *screensaver_pid = 0;
+}
+
+static int
+setup_shm(struct state *state)
+{
+  int error = 0;
+
+  state->shm_fd =
+      shm_open(shm_name, O_RDWR | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
+  if (state->shm_fd < 0) {
+    perror("shm_open");
+    return -1;
+  }
+
+  error = shm_unlink(shm_name);
+  if (error != 0) {
+    perror("shm_unlink");
+    /*
+     * not fatal, but may cause problems with O_CREAT | O_EXCL in shm_open next
+     * time we run. NOTE: "fixing" it by removing O_EXCL opens up a race
+     * condition if multiple instances of this program are started
+     * simultaneously.
+     */
+  }
+
+  error = ftruncate(state->shm_fd, shm_pool_size);
+  if (error != 0) {
+    perror("ftruncate");
+    return -1;
+  }
+
+  state->shm_data = mmap(
+      /*   addr */ NULL,
+      /* length */ shm_pool_size,
+      /*   prot */ PROT_READ | PROT_WRITE,
+      /*  flags */ MAP_SHARED,
+      /*     fd */ state->shm_fd,
+      /* offset */ 0);
+  if (state->shm_data == MAP_FAILED) {
+    perror("mmap");
+    return -1;
+  }
+
+  return 0;
 }
 
 static int
@@ -223,8 +270,8 @@ read_wl_events(struct wl_display *wl)
 
   error = wl_display_prepare_read(wl);
   if (error != 0) {
-    /* queue not being empty is not an error */
     fputs("wl_display_prepare_read: Pending queue\n", stderr);
+    /* unexpectedly pending queue is not fatal */
     return 0;
   }
 
@@ -294,40 +341,6 @@ on_bind_wl_shm(struct state *state)
   error = wl_shm_add_listener(state->shm, &shm_listener, state);
   if (error != 0) {
     fputs("wl_shm_add_listener: listener already set\n", stderr);
-    state->error = -1;
-    return;
-  }
-
-  state->shm_fd =
-      shm_open(shm_name, O_RDWR | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
-  if (state->shm_fd < 0) {
-    perror("shm_open");
-    state->error = -1;
-    return;
-  }
-
-  error = shm_unlink(shm_name);
-  if (error != 0) {
-    perror("shm_unlink");
-    /* not fatal */
-  }
-
-  error = ftruncate(state->shm_fd, shm_pool_size);
-  if (error != 0) {
-    perror("ftruncate");
-    state->error = -1;
-    return;
-  }
-
-  state->shm_data = mmap(
-      NULL,
-      shm_pool_size,
-      PROT_READ | PROT_WRITE,
-      MAP_SHARED,
-      state->shm_fd,
-      0);
-  if (state->shm_data == MAP_FAILED) {
-    perror("mmap");
     state->error = -1;
     return;
   }
@@ -472,9 +485,11 @@ handle_x11_event(xcb_connection_t *x11)
           xcb_event_get_request_label(event_error->major_code),
           event_error->resource_id,
           event_error->sequence);
-      /* break the event loop on any X_Error. Xlib makes an exception for
+      /*
+       * break the event loop on any X_Error. Xlib makes an exception for
        * error_code 17 BadImplementation (server does not implement operation)
-       * but i don't care */
+       * but i don't care
+       */
       return -1;
     }
 
@@ -582,7 +597,7 @@ main(int argc, char **argv)
 
   /* these requests error asynchronously, and are handled in the event loop */
   xcb_create_window(
-      x11,
+      /*            c */ x11,
       /*        depth */ XCB_COPY_FROM_PARENT,
       /*          wid */ window,
       /*       parent */ screen_preferred->root,
@@ -610,7 +625,12 @@ main(int argc, char **argv)
   if (screensaver_pid <= 0) {
     return EXIT_FAILURE;
   }
-  fprintf(stderr, "launch_screensaver: %ld\n", (long)screensaver_pid);
+
+  /* set other things up while requests are in flight */
+  error = setup_shm(&state);
+  if (error != 0) {
+    return EXIT_FAILURE;
+  }
 
   /*
    * wl_display_dispatch and xcb_wait_for_event can't timeout (and since we're
