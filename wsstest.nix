@@ -14,7 +14,10 @@
 
 let
   wayland-protocols-lib = wayland-protocols-client.override {
-    extensions = [ "ext-session-lock-v1" ];
+    extensions = [
+      "xdg-shell"
+      "ext-session-lock-v1"
+    ];
   };
 
 in

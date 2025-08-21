@@ -24,6 +24,7 @@ extern char **environ;
 #include <wayland-client-core.h>
 #include <wayland-client-protocol.h>
 #include <wayland-protocols-client/ext-session-lock-v1.h>
+#include <wayland-protocols-client/xdg-shell.h>
 #include <xcb/xcb.h>
 #include <xcb/xcb_util.h>
 

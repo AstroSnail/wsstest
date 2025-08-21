@@ -22,8 +22,9 @@ let
     assert (lib.isList value);
     let
       # not sure if this is a correct escape function for meson
+      # TODO: spaces
       qvalue = lib.map (v: "'" + lib.escape [ "'" ] v + "'") value;
-      arraystring = "[" + lib.concatStringsSep ", " qvalue + "]";
+      arraystring = "[" + lib.concatStringsSep "," qvalue + "]";
     in
     lib.mesonOption name arraystring;
 
