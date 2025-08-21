@@ -44,10 +44,11 @@ enum {
 struct names
 {
   uint32_t compositor;
-  size_t outputs_num;
   /* TODO: sensible dynamic allocation (search: TODO-OUTPUT) */
   uint32_t outputs[3];
+  size_t outputs_num;
   uint32_t shm;
+  uint32_t wm_base;
   uint32_t session_lock_manager;
 };
 
@@ -55,6 +56,7 @@ enum {
   compositor_version = 1,
   output_version = 3,
   shm_version = 2,
+  wm_base_version = 1,
   session_lock_manager_version = 1,
 };
 
@@ -194,6 +196,11 @@ handle_wl_registry_global(
     return;
   }
 
+  if (strcmp(interface, xdg_wm_base_interface.name) == 0) {
+    names->wm_base = name;
+    return;
+  }
+
   if (strcmp(interface, ext_session_lock_manager_v1_interface.name) == 0) {
     names->session_lock_manager = name;
     return;
@@ -219,6 +226,21 @@ handle_wl_registry_global_remove(
 static const struct wl_registry_listener registry_listener = {
   .global = handle_wl_registry_global,
   .global_remove = handle_wl_registry_global_remove,
+};
+
+static void
+handle_xdg_wm_base_ping(
+    void *data,
+    struct xdg_wm_base *xdg_wm_base,
+    uint32_t serial)
+{
+  (void)data;
+
+  xdg_wm_base_pong(xdg_wm_base, serial);
+}
+
+static const struct xdg_wm_base_listener wm_base_listener = {
+  .ping = handle_xdg_wm_base_ping,
 };
 
 static int
@@ -312,6 +334,30 @@ on_bind_shm(
       /*      format */ WL_SHM_FORMAT_XRGB8888);
   if (*buffer == NULL) {
     perror("wl_shm_pool_create_buffer");
+    return -1;
+  }
+
+  return 0;
+}
+
+static int
+on_bind_wm_base(
+    struct wl_registry *registry,
+    uint32_t name,
+    struct xdg_wm_base **wm_base)
+{
+  int error = 0;
+
+  *wm_base =
+      wl_registry_bind(registry, name, &xdg_wm_base_interface, wm_base_version);
+  if (*wm_base == NULL) {
+    perror(xdg_wm_base_interface.name);
+    return -1;
+  }
+
+  error = xdg_wm_base_add_listener(*wm_base, &wm_base_listener, NULL);
+  if (error != 0) {
+    fputs("xdg_wm_base_add_listener: listener already set\n", stderr);
     return -1;
   }
 
@@ -475,6 +521,15 @@ cleanup_wl_buffer(struct wl_buffer **buffer)
 }
 
 static void
+cleanup_xdg_wm_base(struct xdg_wm_base **wm_base)
+{
+  if (*wm_base != NULL) {
+    xdg_wm_base_destroy(*wm_base);
+    *wm_base = NULL;
+  }
+}
+
+static void
 cleanup_ext_session_lock_manager(
     struct ext_session_lock_manager_v1 **session_lock_manager)
 {
@@ -600,6 +655,7 @@ main(int argc, char **argv)
   CLEANUP(wl_shm) struct wl_shm *shm = NULL;
   CLEANUP(wl_shm_pool) struct wl_shm_pool *shm_pool = NULL;
   CLEANUP(wl_buffer) struct wl_buffer *buffer = NULL;
+  CLEANUP(xdg_wm_base) struct xdg_wm_base *wm_base = NULL;
   CLEANUP(ext_session_lock_manager)
   struct ext_session_lock_manager_v1 *session_lock_manager = NULL;
 
@@ -820,6 +876,13 @@ main(int argc, char **argv)
     if (names.shm != 0 && shm == NULL) {
       error =
           on_bind_shm(registry, names.shm, shm_fd, &shm, &shm_pool, &buffer);
+    }
+    if (error != 0) {
+      break;
+    }
+
+    if (names.wm_base != 0 && wm_base == NULL) {
+      error = on_bind_wm_base(registry, names.wm_base, &wm_base);
     }
     if (error != 0) {
       break;
