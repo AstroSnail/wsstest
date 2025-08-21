@@ -52,6 +52,9 @@ struct state
   struct ext_session_lock_manager_v1 *session_lock_manager;
   /* wl_compositor */
   struct wl_surface *surface;
+  /* wl_shm */
+  struct wl_shm_pool *shm_pool;
+  struct wl_buffer *buffer;
 };
 
 static void
@@ -70,6 +73,17 @@ static void
 cleanup_state(struct state *state)
 {
   int error = 0;
+
+  /* wl_shm */
+  if (state->buffer != NULL) {
+    wl_buffer_destroy(state->buffer);
+    state->buffer = NULL;
+  }
+
+  if (state->shm_pool != NULL) {
+    wl_shm_pool_destroy(state->shm_pool);
+    state->shm_pool = NULL;
+  }
 
   /* wl_compositor */
   if (state->surface != NULL) {
@@ -341,6 +355,27 @@ on_bind_wl_shm(struct state *state)
   error = wl_shm_add_listener(state->shm, &shm_listener, state);
   if (error != 0) {
     fputs("wl_shm_add_listener: listener already set\n", stderr);
+    state->error = -1;
+    return;
+  }
+
+  state->shm_pool =
+      wl_shm_create_pool(state->shm, state->shm_fd, shm_pool_size);
+  if (state->shm_pool == NULL) {
+    perror("wl_shm_create_pool");
+    state->error = -1;
+    return;
+  }
+
+  state->buffer = wl_shm_pool_create_buffer(
+      /* wl_shm_pool */ state->shm_pool,
+      /*      offset */ 0,
+      /*       width */ width,
+      /*      height */ height,
+      /*      stride */ stride,
+      /*      format */ WL_SHM_FORMAT_XRGB8888);
+  if (state->buffer == NULL) {
+    perror("wl_shm_pool_create_buffer");
     state->error = -1;
     return;
   }
