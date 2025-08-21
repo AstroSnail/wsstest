@@ -41,7 +41,10 @@ enum {
 struct state
 {
   int error;
-  /* globals */
+  /* shm setup */
+  int shm_fd;
+  uint8_t *shm_data;
+  /* wl globals */
   struct wl_compositor *compositor;
   size_t n_outputs;
   struct wl_output *outputs[3]; /* TODO: sensible dynamic allocation */
@@ -49,9 +52,6 @@ struct state
   struct ext_session_lock_manager_v1 *session_lock_manager;
   /* wl_compositor */
   struct wl_surface *surface;
-  /* wl_shm */
-  int shm_fd;
-  uint8_t *shm_data;
 };
 
 static void
@@ -71,30 +71,13 @@ cleanup_state(struct state *state)
 {
   int error = 0;
 
-  /* wl_shm */
-  if (state->shm_data != MAP_FAILED) {
-    error = munmap(state->shm_data, shm_pool_size);
-    if (error != 0) {
-      perror("munmap");
-    }
-    state->shm_data = MAP_FAILED;
-  }
-
-  if (state->shm_fd >= 0) {
-    error = close(state->shm_fd);
-    if (error != 0) {
-      perror("close");
-    }
-    state->shm_fd = -1;
-  }
-
   /* wl_compositor */
   if (state->surface != NULL) {
     wl_surface_destroy(state->surface);
     state->surface = NULL;
   }
 
-  /* globals */
+  /* wl globals */
   if (state->session_lock_manager != NULL) {
     ext_session_lock_manager_v1_destroy(state->session_lock_manager);
     state->session_lock_manager = NULL;
@@ -114,6 +97,23 @@ cleanup_state(struct state *state)
   if (state->compositor != NULL) {
     wl_compositor_destroy(state->compositor);
     state->compositor = NULL;
+  }
+
+  /* shm setup */
+  if (state->shm_data != MAP_FAILED) {
+    error = munmap(state->shm_data, shm_pool_size);
+    if (error != 0) {
+      perror("munmap");
+    }
+    state->shm_data = MAP_FAILED;
+  }
+
+  if (state->shm_fd >= 0) {
+    error = close(state->shm_fd);
+    if (error != 0) {
+      perror("close");
+    }
+    state->shm_fd = -1;
   }
 }
 
