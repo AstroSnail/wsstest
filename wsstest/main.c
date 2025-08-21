@@ -860,7 +860,7 @@ main(int argc, char **argv)
 
     /* === WAIT FOR EVENTS === */
 
-    poll_ready = poll(connection_poll, COUNTOF(connection_poll), 5000);
+    poll_ready = poll(connection_poll, COUNTOF(connection_poll), 60000);
     if (poll_ready < 0) {
       perror("poll");
       break;
