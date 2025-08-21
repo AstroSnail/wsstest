@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2025 AstroSnail <astrosnail@protonmail.com>
 #
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: Apache-2.0
 
 {
   lib,
@@ -47,9 +47,9 @@ stdenv.mkDerivation {
   mesonFlags = [ (mesonArray "extensions" extensions) ];
 
   meta = {
+    # the output of this package is substancially derived from wayland-protocols
+    inherit (wayland-protocols.meta) license platforms;
     description = "Wayland protocol extensions client side library";
-    license = lib.licenses.mit;
     maintainers = [ maintainers.AstroSnail ];
-    platforms = lib.platforms.all;
   };
 }

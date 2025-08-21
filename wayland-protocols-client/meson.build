@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2025 AstroSnail <astrosnail@protonmail.com>
 #
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: Apache-2.0
 
 project('wayland-protocols-client', 'c')
 

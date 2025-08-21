@@ -2,8 +2,8 @@
 
 # SPDX-FileCopyrightText: 2025 AstroSnail <astrosnail@protonmail.com>
 #
-# SPDX-License-Identifier: MIT
-#
+# SPDX-License-Identifier: Apache-2.0
+
 # take a glob in the first parameter, match it against files, and print the
 # first match. fail if the glob doesn't match a file.
 
