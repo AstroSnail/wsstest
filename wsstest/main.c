@@ -337,51 +337,6 @@ static const struct wl_shm_listener shm_listener = {
 };
 
 static void
-on_bind_wl_compositor(struct state *state)
-{
-  state->surface = wl_compositor_create_surface(state->compositor);
-  if (state->compositor == NULL) {
-    perror("wl_compositor_create_surface");
-    state->error = -1;
-    return;
-  }
-}
-
-static void
-on_bind_wl_shm(struct state *state)
-{
-  int error = 0;
-
-  error = wl_shm_add_listener(state->shm, &shm_listener, state);
-  if (error != 0) {
-    fputs("wl_shm_add_listener: listener already set\n", stderr);
-    state->error = -1;
-    return;
-  }
-
-  state->shm_pool =
-      wl_shm_create_pool(state->shm, state->shm_fd, shm_pool_size);
-  if (state->shm_pool == NULL) {
-    perror("wl_shm_create_pool");
-    state->error = -1;
-    return;
-  }
-
-  state->buffer = wl_shm_pool_create_buffer(
-      /* wl_shm_pool */ state->shm_pool,
-      /*      offset */ 0,
-      /*       width */ width,
-      /*      height */ height,
-      /*      stride */ stride,
-      /*      format */ WL_SHM_FORMAT_XRGB8888);
-  if (state->buffer == NULL) {
-    perror("wl_shm_pool_create_buffer");
-    state->error = -1;
-    return;
-  }
-}
-
-static void
 handle_wl_registry_global(
     void *data,
     struct wl_registry *wl_registry,
@@ -390,6 +345,7 @@ handle_wl_registry_global(
     uint32_t version)
 {
   struct state *state = data;
+  int error = 0;
   (void)version;
 
   if (strcmp(interface, wl_compositor_interface.name) == 0) {
@@ -401,10 +357,15 @@ handle_wl_registry_global(
       return;
     }
 
-    on_bind_wl_compositor(state);
+    state->surface = wl_compositor_create_surface(state->compositor);
+    if (state->compositor == NULL) {
+      perror("wl_compositor_create_surface");
+      state->error = -1;
+      return;
+    }
 
     return;
-  }
+  } /* wl_compositor_interface */
 
   if (strcmp(interface, wl_output_interface.name) == 0) {
     size_t n = state->n_outputs;
@@ -423,7 +384,7 @@ handle_wl_registry_global(
     state->n_outputs = n + 1;
 
     return;
-  }
+  } /* wl_output_interface */
 
   if (strcmp(interface, wl_shm_interface.name) == 0) {
     state->shm = wl_registry_bind(wl_registry, name, &wl_shm_interface, 2);
@@ -433,10 +394,36 @@ handle_wl_registry_global(
       return;
     }
 
-    on_bind_wl_shm(state);
+    error = wl_shm_add_listener(state->shm, &shm_listener, state);
+    if (error != 0) {
+      fputs("wl_shm_add_listener: listener already set\n", stderr);
+      state->error = -1;
+      return;
+    }
+
+    state->shm_pool =
+        wl_shm_create_pool(state->shm, state->shm_fd, shm_pool_size);
+    if (state->shm_pool == NULL) {
+      perror("wl_shm_create_pool");
+      state->error = -1;
+      return;
+    }
+
+    state->buffer = wl_shm_pool_create_buffer(
+        /* wl_shm_pool */ state->shm_pool,
+        /*      offset */ 0,
+        /*       width */ width,
+        /*      height */ height,
+        /*      stride */ stride,
+        /*      format */ WL_SHM_FORMAT_XRGB8888);
+    if (state->buffer == NULL) {
+      perror("wl_shm_pool_create_buffer");
+      state->error = -1;
+      return;
+    }
 
     return;
-  }
+  } /* wl_shm_interface */
 
   if (strcmp(interface, ext_session_lock_manager_v1_interface.name) == 0) {
     state->session_lock_manager = wl_registry_bind(
@@ -451,7 +438,7 @@ handle_wl_registry_global(
     }
 
     return;
-  }
+  } /* ext_session_lock_manager_v1_interface */
 }
 
 static void
