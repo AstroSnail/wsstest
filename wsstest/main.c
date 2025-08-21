@@ -69,40 +69,6 @@ struct shm_region
   size_t len;
 };
 
-static void
-cleanup_screensaver(pid_t *screensaver_pid)
-{
-  int error = 0;
-
-  if (*screensaver_pid <= 0) {
-    return;
-  }
-
-  error = kill(*screensaver_pid, SIGTERM);
-  /* zombie processes count as existing, no need to exempt ESRCH */
-  if (error != 0) {
-    perror("kill");
-    return;
-  }
-
-  siginfo_t screensaver_info = { 0 };
-  error = waitid(P_PID, *screensaver_pid, &screensaver_info, WEXITED);
-  if (error != 0) {
-    perror("waitid");
-    return;
-  }
-
-  psiginfo(&screensaver_info, NULL);
-
-  if (screensaver_info.si_code == CLD_EXITED) {
-    fprintf(stderr, "Child exited normally: %d\n", screensaver_info.si_status);
-  } else {
-    psignal(screensaver_info.si_status, "Child exited by an uncaught signal");
-  }
-
-  *screensaver_pid = 0;
-}
-
 static int
 flush_wl(struct wl_display *wl)
 {
@@ -528,6 +494,40 @@ cleanup_x11_connection(xcb_connection_t **x11)
     xcb_disconnect(*x11);
     *x11 = NULL;
   }
+}
+
+static void
+cleanup_screensaver(pid_t *screensaver_pid)
+{
+  int error = 0;
+
+  if (*screensaver_pid <= 0) {
+    return;
+  }
+
+  error = kill(*screensaver_pid, SIGTERM);
+  /* zombie processes count as existing, no need to exempt ESRCH */
+  if (error != 0) {
+    perror("kill");
+    return;
+  }
+
+  siginfo_t screensaver_info = { 0 };
+  error = waitid(P_PID, *screensaver_pid, &screensaver_info, WEXITED);
+  if (error != 0) {
+    perror("waitid");
+    return;
+  }
+
+  psiginfo(&screensaver_info, NULL);
+
+  if (screensaver_info.si_code == CLD_EXITED) {
+    fprintf(stderr, "Child exited normally: %d\n", screensaver_info.si_status);
+  } else {
+    psignal(screensaver_info.si_status, "Child exited by an uncaught signal");
+  }
+
+  *screensaver_pid = 0;
 }
 
 static void
