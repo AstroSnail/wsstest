@@ -344,7 +344,10 @@ static int
 on_bind_wm_base(
     struct wl_registry *registry,
     uint32_t name,
-    struct xdg_wm_base **wm_base)
+    struct wl_surface *surface,
+    struct xdg_wm_base **wm_base,
+    struct xdg_surface **xdg_surface,
+    struct xdg_toplevel **toplevel)
 {
   int error = 0;
 
@@ -358,6 +361,18 @@ on_bind_wm_base(
   error = xdg_wm_base_add_listener(*wm_base, &wm_base_listener, NULL);
   if (error != 0) {
     fputs("xdg_wm_base_add_listener: listener already set\n", stderr);
+    return -1;
+  }
+
+  *xdg_surface = xdg_wm_base_get_xdg_surface(*wm_base, surface);
+  if (*xdg_surface == NULL) {
+    perror("xdg_wm_base_get_xdg_surface");
+    return -1;
+  }
+
+  *toplevel = xdg_surface_get_toplevel(*xdg_surface);
+  if (*toplevel == NULL) {
+    perror("xdg_surface_get_toplevel");
     return -1;
   }
 
@@ -530,6 +545,24 @@ cleanup_xdg_wm_base(struct xdg_wm_base **wm_base)
 }
 
 static void
+cleanup_xdg_surface(struct xdg_surface **xdg_surface)
+{
+  if (*xdg_surface != NULL) {
+    xdg_surface_destroy(*xdg_surface);
+    *xdg_surface = NULL;
+  }
+}
+
+static void
+cleanup_xdg_toplevel(struct xdg_toplevel **toplevel)
+{
+  if (*toplevel != NULL) {
+    xdg_toplevel_destroy(*toplevel);
+    *toplevel = NULL;
+  }
+}
+
+static void
 cleanup_ext_session_lock_manager(
     struct ext_session_lock_manager_v1 **session_lock_manager)
 {
@@ -656,6 +689,8 @@ main(int argc, char **argv)
   CLEANUP(wl_shm_pool) struct wl_shm_pool *shm_pool = NULL;
   CLEANUP(wl_buffer) struct wl_buffer *buffer = NULL;
   CLEANUP(xdg_wm_base) struct xdg_wm_base *wm_base = NULL;
+  CLEANUP(xdg_surface) struct xdg_surface *xdg_surface = NULL;
+  CLEANUP(xdg_toplevel) struct xdg_toplevel *toplevel = NULL;
   CLEANUP(ext_session_lock_manager)
   struct ext_session_lock_manager_v1 *session_lock_manager = NULL;
 
@@ -882,7 +917,13 @@ main(int argc, char **argv)
     }
 
     if (names.wm_base != 0 && wm_base == NULL) {
-      error = on_bind_wm_base(registry, names.wm_base, &wm_base);
+      error = on_bind_wm_base(
+          registry,
+          names.wm_base,
+          surface,
+          &wm_base,
+          &xdg_surface,
+          &toplevel);
     }
     if (error != 0) {
       break;
@@ -898,7 +939,7 @@ main(int argc, char **argv)
       break;
     }
 
-    if (surface != NULL && buffer != NULL && !bound_surface_buffer) {
+    if (surface != NULL && buffer != NULL && !bound_surface_buffer && false) {
       wl_surface_attach(surface, buffer, 0, 0);
       wl_surface_damage(surface, 0, 0, UINT32_MAX, UINT32_MAX);
       wl_surface_commit(surface);
