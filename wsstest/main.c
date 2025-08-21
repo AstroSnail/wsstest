@@ -31,6 +31,8 @@ extern char **environ;
 #define COUNTOF(array) (sizeof(array) / sizeof(array)[0])
 
 static const char shm_name[] = "/wsstest_shm";
+
+/* TODO: find these values dynamically for each output (search: TODO-SHM) */
 enum {
   width = 1024,
   height = 768,
@@ -38,138 +40,34 @@ enum {
   shm_pool_size = height * stride * 2,
 };
 
-struct state
+struct names
 {
-  int error;
-  /* shm setup */
-  int shm_fd;
-  uint8_t *shm_data;
-  /* wl globals */
-  struct wl_compositor *compositor;
-  size_t n_outputs;
-  struct wl_output *outputs[3]; /* TODO: sensible dynamic allocation */
-  struct wl_shm *shm;
-  struct ext_session_lock_manager_v1 *session_lock_manager;
-  /* wl_compositor */
-  struct wl_surface *surface;
-  /* wl_shm */
-  struct wl_shm_pool *shm_pool;
-  struct wl_buffer *buffer;
+  uint32_t compositor;
+  size_t outputs_num;
+  /* TODO: sensible dynamic allocation (search: TODO-OUTPUT) */
+  uint32_t outputs[3];
+  uint32_t shm;
+  uint32_t session_lock_manager;
 };
 
-static void
-init_state(struct state *state)
+enum {
+  compositor_version = 1,
+  output_version = 3,
+  shm_version = 2,
+  session_lock_manager_version = 1,
+};
+
+struct outputs
 {
-  /*
-   * assume it has been zero-initialized already, so number fields are 0 and
-   * pointer fields are NULL. only fields that should be initialized another way
-   * are changed here.
-   */
-  state->shm_fd = -1;
-  state->shm_data = MAP_FAILED;
-}
+  size_t num;
+  struct wl_output *outputs[3]; /* TODO-OUTPUT */
+};
 
-static void
-cleanup_state(struct state *state)
+struct shm_region
 {
-  int error = 0;
-
-  /* wl_shm */
-  if (state->buffer != NULL) {
-    wl_buffer_destroy(state->buffer);
-    state->buffer = NULL;
-  }
-
-  if (state->shm_pool != NULL) {
-    wl_shm_pool_destroy(state->shm_pool);
-    state->shm_pool = NULL;
-  }
-
-  /* wl_compositor */
-  if (state->surface != NULL) {
-    wl_surface_destroy(state->surface);
-    state->surface = NULL;
-  }
-
-  /* wl globals */
-  if (state->session_lock_manager != NULL) {
-    ext_session_lock_manager_v1_destroy(state->session_lock_manager);
-    state->session_lock_manager = NULL;
-  }
-
-  if (state->shm != NULL) {
-    wl_shm_release(state->shm);
-    state->shm = NULL;
-  }
-
-  for (size_t i = 0; i < state->n_outputs; i++) {
-    wl_output_release(state->outputs[i]);
-    state->outputs[i] = NULL;
-  }
-  state->n_outputs = 0;
-
-  if (state->compositor != NULL) {
-    wl_compositor_destroy(state->compositor);
-    state->compositor = NULL;
-  }
-
-  /* shm setup */
-  if (state->shm_data != MAP_FAILED) {
-    error = munmap(state->shm_data, shm_pool_size);
-    if (error != 0) {
-      perror("munmap");
-    }
-    state->shm_data = MAP_FAILED;
-  }
-
-  if (state->shm_fd >= 0) {
-    error = close(state->shm_fd);
-    if (error != 0) {
-      perror("close");
-    }
-    state->shm_fd = -1;
-  }
-}
-
-static pid_t
-launch_screensaver(xcb_window_t window, const char *screensaver_path)
-{
-  int error = 0;
-
-  /* lazy, ideally i'd make a copy of environ and work on that */
-  /* * 2 for nybbles (halves of bytes), + 3 for "0x" and NUL terminator */
-  char window_id_string[sizeof window * 2 + 3] = { 0 };
-  snprintf(window_id_string, COUNTOF(window_id_string), "%#" PRIx32, window);
-  error = setenv("XSCREENSAVER_WINDOW", window_id_string, 1);
-  if (error != 0) {
-    perror("setenv");
-    return -1;
-  }
-
-  /*
-   * wl, x11 and shm_fd are cloexec, no need to close explicitly.
-   *
-   * argv is specified to not be modified by posix_spawn (described in the
-   * manual for the exec family of functions, explained under Rationale) so the
-   * const-discarding cast is safe in theory.
-   */
-  pid_t screensaver_pid = 0;
-  const char *const screensaver_argv[] = { screensaver_path, "--root", NULL };
-  error = posix_spawn(
-      /*          pid */ &screensaver_pid,
-      /*         path */ screensaver_path,
-      /* file_actions */ NULL,
-      /*        attrp */ NULL,
-      /*         argv */ (char *const *)screensaver_argv,
-      /*         envp */ environ);
-  if (error != 0) {
-    perror("posix_spawn");
-    return -1;
-  }
-  fprintf(stderr, "screensaver_pid: %ld\n", (long)screensaver_pid);
-
-  return screensaver_pid;
-}
+  void *addr;
+  size_t len;
+};
 
 static void
 cleanup_screensaver(pid_t *screensaver_pid)
@@ -203,50 +101,6 @@ cleanup_screensaver(pid_t *screensaver_pid)
   }
 
   *screensaver_pid = 0;
-}
-
-static int
-setup_shm(struct state *state)
-{
-  int error = 0;
-
-  state->shm_fd =
-      shm_open(shm_name, O_RDWR | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
-  if (state->shm_fd < 0) {
-    perror("shm_open");
-    return -1;
-  }
-
-  error = shm_unlink(shm_name);
-  if (error != 0) {
-    perror("shm_unlink");
-    /*
-     * not fatal, but may cause problems with O_CREAT | O_EXCL in shm_open next
-     * time we run. NOTE: "fixing" it by removing O_EXCL opens up a race
-     * condition if multiple instances of this program are started
-     * simultaneously.
-     */
-  }
-
-  error = ftruncate(state->shm_fd, shm_pool_size);
-  if (error != 0) {
-    perror("ftruncate");
-    return -1;
-  }
-
-  state->shm_data = mmap(
-      /*   addr */ NULL,
-      /* length */ shm_pool_size,
-      /*   prot */ PROT_READ | PROT_WRITE,
-      /*  flags */ MAP_SHARED,
-      /*     fd */ state->shm_fd,
-      /* offset */ 0);
-  if (state->shm_data == MAP_FAILED) {
-    perror("mmap");
-    return -1;
-  }
-
-  return 0;
 }
 
 static int
@@ -348,101 +202,35 @@ handle_wl_registry_global(
     const char *interface,
     uint32_t version)
 {
-  struct state *state = data;
-  int error = 0;
+  struct names *names = data;
+  (void)wl_registry;
   (void)version;
 
   if (strcmp(interface, wl_compositor_interface.name) == 0) {
-    state->compositor =
-        wl_registry_bind(wl_registry, name, &wl_compositor_interface, 1);
-    if (state->compositor == NULL) {
-      perror(interface);
-      state->error = -1;
-      return;
-    }
-
-    state->surface = wl_compositor_create_surface(state->compositor);
-    if (state->compositor == NULL) {
-      perror("wl_compositor_create_surface");
-      state->error = -1;
-      return;
-    }
-
+    names->compositor = name;
     return;
-  } /* wl_compositor_interface */
+  }
 
   if (strcmp(interface, wl_output_interface.name) == 0) {
-    size_t n = state->n_outputs;
+    size_t n = names->outputs_num;
+    /* TODO-OUTPUT */
     if (n >= 3) {
       return;
     }
-
-    state->outputs[n] =
-        wl_registry_bind(wl_registry, name, &wl_output_interface, 3);
-    if (state->outputs[n] == NULL) {
-      perror(interface);
-      state->error = -1;
-      return;
-    }
-
-    state->n_outputs = n + 1;
-
+    names->outputs[n] = name;
+    names->outputs_num = n + 1;
     return;
-  } /* wl_output_interface */
+  }
 
   if (strcmp(interface, wl_shm_interface.name) == 0) {
-    state->shm = wl_registry_bind(wl_registry, name, &wl_shm_interface, 2);
-    if (state->shm == NULL) {
-      perror(interface);
-      state->error = -1;
-      return;
-    }
-
-    error = wl_shm_add_listener(state->shm, &shm_listener, state);
-    if (error != 0) {
-      fputs("wl_shm_add_listener: listener already set\n", stderr);
-      state->error = -1;
-      return;
-    }
-
-    state->shm_pool =
-        wl_shm_create_pool(state->shm, state->shm_fd, shm_pool_size);
-    if (state->shm_pool == NULL) {
-      perror("wl_shm_create_pool");
-      state->error = -1;
-      return;
-    }
-
-    state->buffer = wl_shm_pool_create_buffer(
-        /* wl_shm_pool */ state->shm_pool,
-        /*      offset */ 0,
-        /*       width */ width,
-        /*      height */ height,
-        /*      stride */ stride,
-        /*      format */ WL_SHM_FORMAT_XRGB8888);
-    if (state->buffer == NULL) {
-      perror("wl_shm_pool_create_buffer");
-      state->error = -1;
-      return;
-    }
-
+    names->shm = name;
     return;
-  } /* wl_shm_interface */
+  }
 
   if (strcmp(interface, ext_session_lock_manager_v1_interface.name) == 0) {
-    state->session_lock_manager = wl_registry_bind(
-        wl_registry,
-        name,
-        &ext_session_lock_manager_v1_interface,
-        1);
-    if (state->session_lock_manager == NULL) {
-      perror(interface);
-      state->error = -1;
-      return;
-    }
-
+    names->session_lock_manager = name;
     return;
-  } /* ext_session_lock_manager_v1_interface */
+  }
 }
 
 static void
@@ -465,6 +253,122 @@ static const struct wl_registry_listener registry_listener = {
   .global = handle_wl_registry_global,
   .global_remove = handle_wl_registry_global_remove,
 };
+
+static int
+on_bind_compositor(
+    struct wl_registry *registry,
+    uint32_t name,
+    struct wl_compositor **compositor,
+    struct wl_surface **surface)
+{
+  *compositor = wl_registry_bind(
+      registry,
+      name,
+      &wl_compositor_interface,
+      compositor_version);
+  if (*compositor == NULL) {
+    perror(wl_compositor_interface.name);
+    return -1;
+  }
+
+  *surface = wl_compositor_create_surface(*compositor);
+  if (*surface == NULL) {
+    perror("wl_compositor_create_surface");
+    return -1;
+  }
+
+  return 0;
+}
+
+static int
+on_bind_outputs(
+    struct wl_registry *registry,
+    size_t outputs_num,
+    uint32_t *names,
+    struct outputs *outputs)
+{
+  /* TODO-OUTPUT */
+  for (size_t i = outputs->num; i < outputs_num && i < 3; i++) {
+    outputs->outputs[i] = wl_registry_bind(
+        registry,
+        names[i],
+        &wl_output_interface,
+        output_version);
+    if (outputs->outputs[i] == NULL) {
+      perror(wl_output_interface.name);
+      return -1;
+    }
+
+    outputs->num = i + 1;
+  }
+
+  return 0;
+}
+
+static int
+on_bind_shm(
+    struct wl_registry *registry,
+    uint32_t name,
+    int shm_fd,
+    struct wl_shm **shm,
+    struct wl_shm_pool **shm_pool,
+    struct wl_buffer **buffer)
+{
+  int error = 0;
+
+  *shm = wl_registry_bind(registry, name, &wl_shm_interface, shm_version);
+  if (*shm == NULL) {
+    perror(wl_shm_interface.name);
+    return -1;
+  }
+
+  error = wl_shm_add_listener(*shm, &shm_listener, NULL);
+  if (error != 0) {
+    fputs("wl_shm_add_listener: listener already set\n", stderr);
+    return -1;
+  }
+
+  /* TODO-SHM */
+
+  *shm_pool = wl_shm_create_pool(*shm, shm_fd, shm_pool_size);
+  if (*shm_pool == NULL) {
+    perror("wl_shm_create_pool");
+    return -1;
+  }
+
+  *buffer = wl_shm_pool_create_buffer(
+      /* wl_shm_pool */ *shm_pool,
+      /*      offset */ 0,
+      /*       width */ width,
+      /*      height */ height,
+      /*      stride */ stride,
+      /*      format */ WL_SHM_FORMAT_XRGB8888);
+  if (*buffer == NULL) {
+    perror("wl_shm_pool_create_buffer");
+    return -1;
+  }
+
+  return 0;
+}
+
+static int
+on_bind_session_lock_manager(
+    struct wl_registry *registry,
+    uint32_t name,
+    struct ext_session_lock_manager_v1 **session_lock_manager)
+{
+  *session_lock_manager = wl_registry_bind(
+      registry,
+      name,
+      &ext_session_lock_manager_v1_interface,
+      session_lock_manager_version);
+  if (*session_lock_manager == NULL) {
+    perror(ext_session_lock_manager_v1_interface.name);
+    return -1;
+  }
+
+  return 0;
+}
 
 static void
 cleanup_x11_event(xcb_generic_event_t **event)
@@ -533,18 +437,83 @@ cleanup_wl_display(struct wl_display **wl)
 {
   if (*wl != NULL) {
     flush_wl(*wl);
-
     wl_display_disconnect(*wl);
     *wl = NULL;
   }
 }
 
 static void
-cleanup_wl_registry(struct wl_registry **wl_registry)
+cleanup_wl_registry(struct wl_registry **registry)
 {
-  if (*wl_registry != NULL) {
-    wl_registry_destroy(*wl_registry);
-    *wl_registry = NULL;
+  if (*registry != NULL) {
+    wl_registry_destroy(*registry);
+    *registry = NULL;
+  }
+}
+
+static void
+cleanup_wl_compositor(struct wl_compositor **compositor)
+{
+  if (*compositor != NULL) {
+    wl_compositor_destroy(*compositor);
+    *compositor = NULL;
+  }
+}
+
+static void
+cleanup_wl_surface(struct wl_surface **surface)
+{
+  if (*surface != NULL) {
+    wl_surface_destroy(*surface);
+    *surface = NULL;
+  }
+}
+
+static void
+cleanup_outputs(struct outputs *outputs)
+{
+  /* TODO-OUTPUT */
+  for (size_t i = 0; i < outputs->num && i < 3; i++) {
+    wl_output_release(outputs->outputs[i]);
+    outputs->outputs[i] = NULL;
+  }
+  outputs->num = 0;
+}
+
+static void
+cleanup_wl_shm(struct wl_shm **shm)
+{
+  if (*shm != NULL) {
+    wl_shm_release(*shm);
+    *shm = NULL;
+  }
+}
+
+static void
+cleanup_wl_shm_pool(struct wl_shm_pool **shm_pool)
+{
+  if (*shm_pool != NULL) {
+    wl_shm_pool_destroy(*shm_pool);
+    *shm_pool = NULL;
+  }
+}
+
+static void
+cleanup_wl_buffer(struct wl_buffer **buffer)
+{
+  if (*buffer != NULL) {
+    wl_buffer_destroy(*buffer);
+    *buffer = NULL;
+  }
+}
+
+static void
+cleanup_ext_session_lock_manager(
+    struct ext_session_lock_manager_v1 **session_lock_manager)
+{
+  if (*session_lock_manager != NULL) {
+    ext_session_lock_manager_v1_destroy(*session_lock_manager);
+    *session_lock_manager = NULL;
   }
 }
 
@@ -556,9 +525,37 @@ cleanup_x11_connection(xcb_connection_t **x11)
   if (*x11 != NULL) {
     error = xcb_flush(*x11);
     fprintf(stderr, "xcb_flush: %d\n", error);
-
     xcb_disconnect(*x11);
     *x11 = NULL;
+  }
+}
+
+static void
+cleanup_shm_fd(int *shm_fd)
+{
+  int error = 0;
+
+  if (*shm_fd >= 0) {
+    error = close(*shm_fd);
+    if (error != 0) {
+      perror("close");
+    }
+    *shm_fd = -1;
+  }
+}
+
+static void
+cleanup_shm_region(struct shm_region *shm_region)
+{
+  int error = 0;
+
+  if (shm_region->addr != MAP_FAILED) {
+    error = munmap(shm_region->addr, shm_region->len);
+    if (error != 0) {
+      perror("munmap");
+    }
+    shm_region->addr = MAP_FAILED;
+    shm_region->len = 0;
   }
 }
 
@@ -573,6 +570,8 @@ main(int argc, char **argv)
   }
   const char *screensaver_path = argv[1];
 
+  /* === SET UP WAYLAND === */
+
   CLEANUP(wl_display) struct wl_display *wl = NULL;
   wl = wl_display_connect(NULL);
   if (wl == NULL) {
@@ -580,25 +579,35 @@ main(int argc, char **argv)
     return EXIT_FAILURE;
   }
 
-  CLEANUP(wl_registry) struct wl_registry *wl_registry = NULL;
-  wl_registry = wl_display_get_registry(wl);
-  if (wl_registry == NULL) {
+  CLEANUP(wl_registry) struct wl_registry *registry = NULL;
+  registry = wl_display_get_registry(wl);
+  if (registry == NULL) {
     perror("wl_display_get_registry");
     return EXIT_FAILURE;
   }
 
-  CLEANUP(state) struct state state = { 0 };
-  init_state(&state);
-  error = wl_registry_add_listener(wl_registry, &registry_listener, &state);
+  struct names names = { 0 };
+  error = wl_registry_add_listener(registry, &registry_listener, &names);
   if (error != 0) {
     fputs("wl_registry_add_listener: listener already set\n", stderr);
     return EXIT_FAILURE;
   }
 
+  CLEANUP(wl_compositor) struct wl_compositor *compositor = NULL;
+  CLEANUP(wl_surface) struct wl_surface *surface = NULL;
+  CLEANUP(outputs) struct outputs outputs = { 0 };
+  CLEANUP(wl_shm) struct wl_shm *shm = NULL;
+  CLEANUP(wl_shm_pool) struct wl_shm_pool *shm_pool = NULL;
+  CLEANUP(wl_buffer) struct wl_buffer *buffer = NULL;
+  CLEANUP(ext_session_lock_manager)
+  struct ext_session_lock_manager_v1 *session_lock_manager = NULL;
+
   error = flush_wl(wl);
   if (error != 0) {
     return EXIT_FAILURE;
   }
+
+  /* === SET UP X11 === */
 
   CLEANUP(x11_connection) xcb_connection_t *x11 = NULL;
   int screen_preferred_n = 0;
@@ -636,6 +645,7 @@ main(int argc, char **argv)
       /*       visual */ screen_preferred->root_visual,
       /*   value_mask */ 0,
       /*   value_list */ NULL);
+
   xcb_map_window(x11, window);
 
   error = xcb_flush(x11);
@@ -646,17 +656,88 @@ main(int argc, char **argv)
   /* unsure what positive error values mean, besides success */
   /* i suspect that the only success value is 1 */
 
-  CLEANUP(screensaver) pid_t screensaver_pid = 0;
-  screensaver_pid = launch_screensaver(window, screensaver_path);
-  if (screensaver_pid <= 0) {
+  /* === LAUNCH SCREENSAVER === */
+
+  /* * 2 for nybbles (halves of bytes), + 3 for "0x" and NUL terminator */
+  char window_id_string[sizeof window * 2 + 3] = { 0 };
+  snprintf(window_id_string, COUNTOF(window_id_string), "%#" PRIx32, window);
+
+  /* lazy, ideally i'd make a copy of environ and work on that */
+  error = setenv("XSCREENSAVER_WINDOW", window_id_string, 1);
+  if (error != 0) {
+    perror("setenv");
     return EXIT_FAILURE;
   }
 
-  /* set other things up while requests are in flight */
-  error = setup_shm(&state);
+  /*
+   * wl and x11 sockets are cloexec, no need to close explicitly.
+   *
+   * argv is specified to not be modified by posix_spawn (described in the
+   * manual for the exec family of functions, explained under Rationale) so the
+   * const-discarding cast is safe in theory.
+   */
+  CLEANUP(screensaver) pid_t screensaver_pid = 0;
+  const char *const screensaver_argv[] = { screensaver_path, "--root", NULL };
+  error = posix_spawn(
+      /*          pid */ &screensaver_pid,
+      /*         path */ screensaver_path,
+      /* file_actions */ NULL,
+      /*        attrp */ NULL,
+      /*         argv */ (char *const *)screensaver_argv,
+      /*         envp */ environ);
   if (error != 0) {
+    perror("posix_spawn");
     return EXIT_FAILURE;
   }
+  fprintf(stderr, "screensaver_pid: %ld\n", (long)screensaver_pid);
+
+  /* === SET UP SHARED MEMORY === */
+
+  CLEANUP(shm_fd) int shm_fd = -1;
+  shm_fd = shm_open(shm_name, O_RDWR | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
+  if (shm_fd < 0) {
+    perror("shm_open");
+    return EXIT_FAILURE;
+  }
+
+  error = shm_unlink(shm_name);
+  if (error != 0) {
+    perror("shm_unlink");
+    /*
+     * not fatal, but may cause problems with O_CREAT | O_EXCL in shm_open next
+     * time we run. NOTE: "fixing" it by removing O_EXCL opens up a race
+     * condition if multiple instances of this program are started
+     * simultaneously.
+     */
+  }
+
+  /* TODO-SHM */
+
+  error = ftruncate(shm_fd, shm_pool_size);
+  if (error != 0) {
+    perror("ftruncate");
+    return EXIT_FAILURE;
+  }
+
+  CLEANUP(shm_region)
+  struct shm_region shm_region = {
+    .addr = MAP_FAILED,
+    .len = 0,
+  };
+  shm_region.addr = mmap(
+      /*   addr */ NULL,
+      /* length */ shm_pool_size,
+      /*   prot */ PROT_READ | PROT_WRITE,
+      /*  flags */ MAP_SHARED,
+      /*     fd */ shm_fd,
+      /* offset */ 0);
+  if (shm_region.addr == MAP_FAILED) {
+    perror("mmap");
+    return EXIT_FAILURE;
+  }
+  shm_region.len = shm_pool_size;
+
+  /* === EVENT LOOP === */
 
   /*
    * wl_display_dispatch and xcb_wait_for_event can't timeout (and since we're
@@ -671,6 +752,8 @@ main(int argc, char **argv)
     { .fd = xcb_get_file_descriptor(x11), .events = POLLIN },
   };
   while (poll_ready > 0) {
+    /* === RECEIVE X11 EVENTS === */
+
     /* xcb_poll_for_event processes one event at a time, handle it first so we
      * can use continue to loop it quickly */
     error = handle_x11_event(x11);
@@ -682,15 +765,21 @@ main(int argc, char **argv)
     if (error > 0) {
       continue;
     }
+
     if (got_x11_error) {
       error = -1;
       break;
     }
 
-    /* flush requests that an event handler might have made */
+    /* === RESPOND TO X11 EVENTS === */
+
+    /* if we ever respond to x11 events, we send the responses here */
+
     error = xcb_flush(x11);
     fprintf(stderr, "xcb_flush: %d\n", error);
     /* ignore flush errors for now, we check connection errors further down */
+
+    /* === RECEIVE WAYLAND EVENTS === */
 
     /* xcb_poll_for_event also checks the connection for new events, but
      * wl_display_dispatch_pending doesn't, so we need to read for it first */
@@ -706,19 +795,54 @@ main(int argc, char **argv)
     }
     fprintf(stderr, "wl_display_dispatch_pending: %d\n", error);
 
-    error = flush_wl(wl);
+    /* === RESPOND TO WAYLAND EVENTS === */
 
-    /* avoid getting stuck waiting for failed callbacks */
-    error = state.error;
+    error = 0;
+
+    if (names.compositor != 0 && compositor == NULL) {
+      error =
+          on_bind_compositor(registry, names.compositor, &compositor, &surface);
+    }
     if (error != 0) {
       break;
     }
+
+    if (names.outputs_num > outputs.num) {
+      error =
+          on_bind_outputs(registry, names.outputs_num, names.outputs, &outputs);
+    }
+    if (error != 0) {
+      break;
+    }
+
+    if (names.shm != 0 && shm == NULL) {
+      error =
+          on_bind_shm(registry, names.shm, shm_fd, &shm, &shm_pool, &buffer);
+    }
+    if (error != 0) {
+      break;
+    }
+
+    if (names.session_lock_manager != 0 && session_lock_manager == NULL) {
+      error = on_bind_session_lock_manager(
+          registry,
+          names.session_lock_manager,
+          &session_lock_manager);
+    }
+    if (error != 0) {
+      break;
+    }
+
+    error = flush_wl(wl);
+
+    /* === HANDLE CONNECTION ERRORS === */
 
     /* check for errors *after* trying to handle events, because errors are only
      * noticed after reading events */
     error = wl_display_get_error(wl);
     if (error != 0) {
-      fprintf(stderr, "wl_display_get_error: %s\n", strerror(error));
+      errno = error;
+      perror("wl_display_get_error");
       break;
     }
 
@@ -733,6 +857,8 @@ main(int argc, char **argv)
       fprintf(stderr, "xcb_connection_has_error: %d\n", error);
       break;
     }
+
+    /* === WAIT FOR EVENTS === */
 
     poll_ready = poll(connection_poll, COUNTOF(connection_poll), 5000);
     if (poll_ready < 0) {
