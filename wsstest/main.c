@@ -746,6 +746,7 @@ main(int argc, char **argv)
    * connection, otherwise we might leave events stuck in a queue for a while.
    */
   bool got_x11_error = false;
+  bool bound_surface_buffer = false;
   int poll_ready = 1;
   struct pollfd connection_poll[2] = {
     { .fd = wl_display_get_fd(wl), .events = POLLIN },
@@ -831,6 +832,13 @@ main(int argc, char **argv)
     }
     if (error != 0) {
       break;
+    }
+
+    if (surface != NULL && buffer != NULL && !bound_surface_buffer) {
+      wl_surface_attach(surface, buffer, 0, 0);
+      wl_surface_damage(surface, 0, 0, UINT32_MAX, UINT32_MAX);
+      wl_surface_commit(surface);
+      bound_surface_buffer = true;
     }
 
     error = flush_wl(wl);
