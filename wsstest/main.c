@@ -133,21 +133,18 @@ handle_wl_shm_format(void *data, struct wl_shm *wl_shm, uint32_t format)
 
   char fourcc[4] = { 0 };
   switch (format) {
-    case WL_SHM_FORMAT_ARGB8888: {
-      memcpy(fourcc, "AR24", 4);
-      break;
-    }
-    case WL_SHM_FORMAT_XRGB8888: {
-      memcpy(fourcc, "XR24", 4);
-      break;
-    }
-    default: {
-      fourcc[0] = format;
-      fourcc[1] = format >> 8;
-      fourcc[2] = format >> 16;
-      fourcc[3] = format >> 24;
-      break;
-    }
+  case WL_SHM_FORMAT_ARGB8888:
+    memcpy(fourcc, "AR24", 4);
+    break;
+  case WL_SHM_FORMAT_XRGB8888:
+    memcpy(fourcc, "XR24", 4);
+    break;
+  default:
+    fourcc[0] = format;
+    fourcc[1] = format >> 8;
+    fourcc[2] = format >> 16;
+    fourcc[3] = format >> 24;
+    break;
   }
 
   fprintf(
@@ -424,37 +421,36 @@ handle_x11_event(xcb_connection_t *x11)
       event_type,
       xcb_event_get_label(event_type));
 
+  xcb_generic_error_t *event_error = NULL;
   switch (event_type) {
-    case 0: /* X_Error */ {
-      /* ideally i could just use XmuPrintDefaultErrorMessage, but that wants an
-       * Xlib Display while i only have an xcb_connection_t */
-      xcb_generic_error_t *event_error = (xcb_generic_error_t *)event;
-      fprintf(
-          stderr,
-          "  Error code:    %" PRIu8 " (%s)\n"
-          "  Major opcode:  %" PRIu8 " (%s)\n"
-          "  Resource ID:   %#" PRIx32 "\n"
-          /* Xlib also shows the "current" serial, but xcb doesn't seem to
-           * expose this for us at all */
-          "  Serial number: %" PRIu16 "\n",
-          event_error->error_code,
-          xcb_event_get_error_label(event_error->error_code),
-          event_error->major_code,
-          xcb_event_get_request_label(event_error->major_code),
-          event_error->resource_id,
-          event_error->sequence);
-      /*
-       * break the event loop on any X_Error. Xlib makes an exception for
-       * error_code 17 BadImplementation (server does not implement operation)
-       * but i don't care.
-       */
-      return -1;
-    }
+  case 0: /* X_Error */
+    /* ideally i could just use XmuPrintDefaultErrorMessage, but that wants an
+     * Xlib Display while i only have an xcb_connection_t */
+    event_error = (xcb_generic_error_t *)event;
+    fprintf(
+        stderr,
+        "  Error code:    %" PRIu8 " (%s)\n"
+        "  Major opcode:  %" PRIu8 " (%s)\n"
+        "  Resource ID:   %#" PRIx32 "\n"
+        /* Xlib also shows the "current" serial, but xcb doesn't seem to expose
+         * this for us at all */
+        "  Serial number: %" PRIu16 "\n",
+        event_error->error_code,
+        xcb_event_get_error_label(event_error->error_code),
+        event_error->major_code,
+        xcb_event_get_request_label(event_error->major_code),
+        event_error->resource_id,
+        event_error->sequence);
+    /*
+     * break the event loop on any X_Error. Xlib makes an exception for
+     * error_code 17 BadImplementation (server does not implement operation) but
+     * i don't care.
+     */
+    return -1;
 
-    default: {
-      fprintf(stderr, "  Serial number: %" PRIu16 "\n", event->sequence);
-      break;
-    }
+  default:
+    fprintf(stderr, "  Serial number: %" PRIu16 "\n", event->sequence);
+    break;
   } /* switch (event_type) */
 
   return 1;
