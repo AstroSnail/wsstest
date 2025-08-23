@@ -5,6 +5,10 @@
 /.direnv
 /.pre-commit-config.yaml
 /result
+
+# vim
 Session.vim
-.swp
 .*.swp
+.swp
+.swo
+# potentially many swapfiles for unnamed buffers
