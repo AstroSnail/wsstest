@@ -60,6 +60,12 @@ enum {
   session_lock_manager_version = 1,
 };
 
+struct messages
+{
+  uint32_t ping;
+  uint32_t configure;
+};
+
 struct outputs
 {
   size_t num;
@@ -172,6 +178,11 @@ handle_wl_registry_global(
   (void)wl_registry;
   (void)version;
 
+  if (names == NULL) {
+    fputs("handle_wl_registry_global: Missing names\n", stderr);
+    return;
+  }
+
   if (strcmp(interface, wl_compositor_interface.name) == 0) {
     names->compositor = name;
     return;
@@ -231,13 +242,40 @@ handle_xdg_wm_base_ping(
     struct xdg_wm_base *xdg_wm_base,
     uint32_t serial)
 {
-  (void)data;
+  struct messages *messages = data;
+  (void)xdg_wm_base;
 
-  xdg_wm_base_pong(xdg_wm_base, serial);
+  if (messages == NULL) {
+    fputs("handle_xdg_wm_base_ping: Missing messages\n", stderr);
+    return;
+  }
+
+  messages->ping = serial;
 }
 
 static const struct xdg_wm_base_listener wm_base_listener = {
   .ping = handle_xdg_wm_base_ping,
+};
+
+static void
+handle_xdg_surface_configure(
+    void *data,
+    struct xdg_surface *xdg_surface,
+    uint32_t serial)
+{
+  struct messages *messages = data;
+  (void)xdg_surface;
+
+  if (messages == NULL) {
+    fputs("handle_xdg_surface_configure: Missing messages\n", stderr);
+    return;
+  }
+
+  messages->configure = serial;
+}
+
+static const struct xdg_surface_listener xdg_surface_listener = {
+  .configure = handle_xdg_surface_configure,
 };
 
 static int
@@ -341,6 +379,7 @@ static int
 on_bind_wm_base(
     struct wl_registry *registry,
     uint32_t name,
+    struct messages *messages,
     struct wl_surface *surface,
     struct xdg_wm_base **wm_base,
     struct xdg_surface **xdg_surface,
@@ -355,7 +394,7 @@ on_bind_wm_base(
     return -1;
   }
 
-  error = xdg_wm_base_add_listener(*wm_base, &wm_base_listener, NULL);
+  error = xdg_wm_base_add_listener(*wm_base, &wm_base_listener, messages);
   if (error != 0) {
     fputs("xdg_wm_base_add_listener: listener already set\n", stderr);
     return -1;
@@ -367,11 +406,21 @@ on_bind_wm_base(
     return -1;
   }
 
+  error =
+      xdg_surface_add_listener(*xdg_surface, &xdg_surface_listener, messages);
+  if (error != 0) {
+    fputs("xdg_surface_add_listener: listener already set\n", stderr);
+    return -1;
+  }
+
   *toplevel = xdg_surface_get_toplevel(*xdg_surface);
   if (*toplevel == NULL) {
     perror("xdg_surface_get_toplevel");
     return -1;
   }
+
+  /* commit the unattached surface to prompt the server to configure it */
+  wl_surface_commit(surface);
 
   return 0;
 }
@@ -834,7 +883,7 @@ main(int argc, char **argv)
    * connection, otherwise we might leave events stuck in a queue for a while.
    */
   bool got_x11_error = false;
-  bool bound_surface_buffer = false;
+  struct messages messages = { 0 };
   int poll_ready = 1;
   struct pollfd connection_poll[2] = {
     { .fd = wl_display_get_fd(wl), .events = POLLIN },
@@ -912,10 +961,11 @@ main(int argc, char **argv)
       break;
     }
 
-    if (names.wm_base != 0 && wm_base == NULL) {
+    if (names.wm_base != 0 && surface != NULL && wm_base == NULL) {
       error = on_bind_wm_base(
           registry,
           names.wm_base,
+          &messages,
           surface,
           &wm_base,
           &xdg_surface,
@@ -935,11 +985,18 @@ main(int argc, char **argv)
       break;
     }
 
-    if (surface != NULL && buffer != NULL && !bound_surface_buffer && false) {
+    if (wm_base != NULL && messages.ping != 0) {
+      xdg_wm_base_pong(wm_base, messages.ping);
+      messages.ping = 0;
+    }
+
+    if (xdg_surface != NULL && messages.configure != 0 && surface != NULL &&
+        buffer != NULL) {
+      xdg_surface_ack_configure(xdg_surface, messages.configure);
       wl_surface_attach(surface, buffer, 0, 0);
       wl_surface_damage(surface, 0, 0, UINT32_MAX, UINT32_MAX);
       wl_surface_commit(surface);
-      bound_surface_buffer = true;
+      messages.configure = 0;
     }
 
     error = flush_wl(wl);
