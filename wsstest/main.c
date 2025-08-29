@@ -279,7 +279,7 @@ static const struct xdg_surface_listener xdg_surface_listener = {
 };
 
 static int
-on_bind_compositor(
+bind_compositor(
     struct wl_registry *registry,
     uint32_t name,
     struct wl_compositor **compositor,
@@ -305,7 +305,7 @@ on_bind_compositor(
 }
 
 static int
-on_bind_outputs(
+bind_outputs(
     struct wl_registry *registry,
     size_t outputs_num,
     uint32_t *names,
@@ -330,7 +330,7 @@ on_bind_outputs(
 }
 
 static int
-on_bind_shm(
+bind_shm(
     struct wl_registry *registry,
     uint32_t name,
     int shm_fd,
@@ -376,7 +376,7 @@ on_bind_shm(
 }
 
 static int
-on_bind_wm_base(
+bind_wm_base(
     struct wl_registry *registry,
     uint32_t name,
     struct messages *messages,
@@ -426,7 +426,7 @@ on_bind_wm_base(
 }
 
 static int
-on_bind_session_lock_manager(
+bind_session_lock_manager(
     struct wl_registry *registry,
     uint32_t name,
     struct ext_session_lock_manager_v1 **session_lock_manager)
@@ -939,7 +939,7 @@ main(int argc, char **argv)
 
     if (names.compositor != 0 && compositor == NULL) {
       error =
-          on_bind_compositor(registry, names.compositor, &compositor, &surface);
+          bind_compositor(registry, names.compositor, &compositor, &surface);
     }
     if (error != 0) {
       break;
@@ -947,22 +947,21 @@ main(int argc, char **argv)
 
     if (names.outputs_num > outputs.num) {
       error =
-          on_bind_outputs(registry, names.outputs_num, names.outputs, &outputs);
+          bind_outputs(registry, names.outputs_num, names.outputs, &outputs);
     }
     if (error != 0) {
       break;
     }
 
     if (names.shm != 0 && shm == NULL) {
-      error =
-          on_bind_shm(registry, names.shm, shm_fd, &shm, &shm_pool, &buffer);
+      error = bind_shm(registry, names.shm, shm_fd, &shm, &shm_pool, &buffer);
     }
     if (error != 0) {
       break;
     }
 
     if (names.wm_base != 0 && surface != NULL && wm_base == NULL) {
-      error = on_bind_wm_base(
+      error = bind_wm_base(
           registry,
           names.wm_base,
           &messages,
@@ -976,7 +975,7 @@ main(int argc, char **argv)
     }
 
     if (names.session_lock_manager != 0 && session_lock_manager == NULL) {
-      error = on_bind_session_lock_manager(
+      error = bind_session_lock_manager(
           registry,
           names.session_lock_manager,
           &session_lock_manager);
