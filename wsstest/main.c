@@ -34,11 +34,13 @@ extern char **environ;
 static const char shm_name[] = "/wsstest_shm";
 
 /* TODO: find these values dynamically for each output (search: TODO-SHM) */
+/* TODO: more than 2 buffers? (search: TODO-BUFFER) */
 enum {
   width = 1024,
   height = 768,
-  stride = width * sizeof(uint32_t),
-  shm_pool_size = height * stride * 2,
+  stride = sizeof(uint32_t) * width,
+  buffer_size = stride * height,
+  shm_pool_size = buffer_size * 2,
 };
 
 struct names
@@ -329,6 +331,7 @@ bind_outputs(
   return 0;
 }
 
+/* TODO-SHM TODO-BUFFER */
 static int
 bind_shm(
     struct wl_registry *registry,
@@ -336,7 +339,7 @@ bind_shm(
     int shm_fd,
     struct wl_shm **shm,
     struct wl_shm_pool **shm_pool,
-    struct wl_buffer **buffer)
+    struct wl_buffer *(*buffer)[2])
 {
   int error = 0;
 
@@ -352,22 +355,32 @@ bind_shm(
     return -1;
   }
 
-  /* TODO-SHM */
-
   *shm_pool = wl_shm_create_pool(*shm, shm_fd, shm_pool_size);
   if (*shm_pool == NULL) {
     perror("wl_shm_create_pool");
     return -1;
   }
 
-  *buffer = wl_shm_pool_create_buffer(
+  (*buffer)[0] = wl_shm_pool_create_buffer(
       /* wl_shm_pool */ *shm_pool,
-      /*      offset */ 0,
+      /*      offset */ buffer_size * 0,
       /*       width */ width,
       /*      height */ height,
       /*      stride */ stride,
       /*      format */ WL_SHM_FORMAT_XRGB8888);
-  if (*buffer == NULL) {
+  if ((*buffer)[0] == NULL) {
+    perror("wl_shm_pool_create_buffer");
+    return -1;
+  }
+
+  (*buffer)[1] = wl_shm_pool_create_buffer(
+      /* wl_shm_pool */ *shm_pool,
+      /*      offset */ buffer_size * 1,
+      /*       width */ width,
+      /*      height */ height,
+      /*      stride */ stride,
+      /*      format */ WL_SHM_FORMAT_XRGB8888);
+  if ((*buffer)[1] == NULL) {
     perror("wl_shm_pool_create_buffer");
     return -1;
   }
@@ -571,12 +584,18 @@ cleanup_wl_shm_pool(struct wl_shm_pool **shm_pool)
   }
 }
 
+/* TODO-BUFFER */
 static void
-cleanup_wl_buffer(struct wl_buffer **buffer)
+cleanup_wl_buffer(struct wl_buffer *(*buffer)[2])
 {
-  if (*buffer != NULL) {
-    wl_buffer_destroy(*buffer);
-    *buffer = NULL;
+  if ((*buffer)[0] != NULL) {
+    wl_buffer_destroy((*buffer)[0]);
+    (*buffer)[0] = NULL;
+  }
+
+  if ((*buffer)[1] != NULL) {
+    wl_buffer_destroy((*buffer)[1]);
+    (*buffer)[1] = NULL;
   }
 }
 
@@ -732,7 +751,7 @@ main(int argc, char **argv)
   CLEANUP(outputs) struct outputs outputs = { 0 };
   CLEANUP(wl_shm) struct wl_shm *shm = NULL;
   CLEANUP(wl_shm_pool) struct wl_shm_pool *shm_pool = NULL;
-  CLEANUP(wl_buffer) struct wl_buffer *buffer = NULL;
+  CLEANUP(wl_buffer) struct wl_buffer *buffer[2] = { NULL }; /* TODO-BUFFER */
   CLEANUP(xdg_wm_base) struct xdg_wm_base *wm_base = NULL;
   CLEANUP(xdg_surface) struct xdg_surface *xdg_surface = NULL;
   CLEANUP(xdg_toplevel) struct xdg_toplevel *toplevel = NULL;
@@ -849,7 +868,6 @@ main(int argc, char **argv)
   }
 
   /* TODO-SHM */
-
   error = ftruncate(shm_fd, shm_pool_size);
   if (error != 0) {
     perror("ftruncate");
@@ -884,6 +902,7 @@ main(int argc, char **argv)
    */
   bool got_x11_error = false;
   struct messages messages = { 0 };
+  int next_buffer = 0;
   int poll_ready = 1;
   struct pollfd connection_poll[2] = {
     { .fd = wl_display_get_fd(wl), .events = POLLIN },
@@ -989,13 +1008,18 @@ main(int argc, char **argv)
       messages.ping = 0;
     }
 
+    /* TODO-BUFFER */
     if (xdg_surface != NULL && messages.configure != 0 && surface != NULL &&
-        buffer != NULL) {
+        buffer[0] != NULL && buffer[1] != NULL) {
       xdg_surface_ack_configure(xdg_surface, messages.configure);
-      wl_surface_attach(surface, buffer, 0, 0);
+      wl_surface_attach(surface, buffer[next_buffer], 0, 0);
       wl_surface_damage(surface, 0, 0, UINT32_MAX, UINT32_MAX);
       wl_surface_commit(surface);
       messages.configure = 0;
+      next_buffer++;
+    }
+    if (next_buffer > 1) {
+      next_buffer = 0;
     }
 
     error = flush_wl(wl);
