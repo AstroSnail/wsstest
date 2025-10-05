@@ -712,6 +712,12 @@ cleanup_shm_region(struct shm_region *shm_region)
   }
 }
 
+/*
+ * TODO: we currently use x11 GetImage and wayland shm to pass frames around,
+ * which makes lots of copies. we could use the x11 shm extension to avoid a
+ * copy here in wsstest, or figure out how to use handles to gpu memory to
+ * minimize copies altogether.
+ */
 int
 main(int argc, char **argv)
 {
@@ -903,6 +909,10 @@ main(int argc, char **argv)
   bool got_x11_error = false;
   struct messages messages = { 0 };
   int next_buffer = 0;
+  xcb_get_image_cookie_t get_image_cookie = { 0 };
+  xcb_get_image_reply_t *get_image_reply = NULL;
+  uint8_t *get_image_data = NULL;
+  int get_image_data_length = 0;
   int poll_ready = 1;
   struct pollfd connection_poll[2] = {
     { .fd = wl_display_get_fd(wl), .events = POLLIN },
@@ -1011,9 +1021,41 @@ main(int argc, char **argv)
     /* TODO-BUFFER */
     if (xdg_surface != NULL && messages.configure != 0 && surface != NULL &&
         buffer[0] != NULL && buffer[1] != NULL) {
+      /* TODO: would like to send-and-forget the request and handle the response
+       * in handle_x11_event */
+      /* TODO: under what circumstances does the server reply with error?
+       * something about width and height seems to affect it */
+      get_image_cookie = xcb_get_image_unchecked(
+          /*          c */ x11,
+          /*     format */ XCB_IMAGE_FORMAT_Z_PIXMAP,
+          /*   drawable */ window,
+          /*          x */ 0,
+          /*          y */ 0,
+          /*      width */ width,  /*screen_preferred->width_in_pixels,*/
+          /*     height */ height, /*screen_preferred->height_in_pixels,*/
+          /* plane_mask */ 0xFFFFFFFF);
+      /* xcb_flush(x11); */
+      get_image_reply = xcb_get_image_reply(x11, get_image_cookie, NULL);
+      if (get_image_reply != NULL) {
+        get_image_data = xcb_get_image_data(get_image_reply);
+        get_image_data_length = xcb_get_image_data_length(get_image_reply);
+        if (get_image_data_length > buffer_size) {
+          get_image_data_length = buffer_size;
+        }
+        memcpy(
+            &((uint8_t *)shm_region.addr)[next_buffer * buffer_size],
+            get_image_data,
+            get_image_data_length);
+
+        free(get_image_reply);
+        get_image_reply = NULL;
+        get_image_data = NULL;
+        get_image_data_length = 0;
+      }
+
       xdg_surface_ack_configure(xdg_surface, messages.configure);
       wl_surface_attach(surface, buffer[next_buffer], 0, 0);
-      wl_surface_damage(surface, 0, 0, UINT32_MAX, UINT32_MAX);
+      wl_surface_damage(surface, 0, 0, INT32_MAX, INT32_MAX);
       wl_surface_commit(surface);
       messages.configure = 0;
       next_buffer++;
