@@ -27,6 +27,8 @@ extern char **environ;
 #include <wayland-client-protocols/xdg-shell.h>
 #include <xcb/xcb.h>
 #include <xcb/xcb_util.h>
+#define XCB_ERROR 0
+#define XCB_REPLY 1
 
 #define CLEANUP(how) __attribute__((cleanup(cleanup_##how)))
 #define COUNTOF(array) (sizeof(array) / sizeof(array)[0])
@@ -485,7 +487,7 @@ handle_x11_event(xcb_connection_t *x11)
 
   xcb_generic_error_t *event_error = NULL;
   switch (event_type) {
-  case 0: /* X_Error */
+  case XCB_ERROR:
     /* ideally i could just use XmuPrintDefaultErrorMessage, but that wants an
      * Xlib Display while i only have an xcb_connection_t */
     event_error = (xcb_generic_error_t *)event;
@@ -504,7 +506,7 @@ handle_x11_event(xcb_connection_t *x11)
         event_error->resource_id,
         event_error->sequence);
     /*
-     * break the event loop on any X_Error. Xlib makes an exception for
+     * break the event loop on any XCB_ERROR. Xlib makes an exception for
      * error_code 17 BadImplementation (server does not implement operation) but
      * i don't care.
      */
