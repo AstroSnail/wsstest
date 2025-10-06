@@ -34,7 +34,7 @@
           ];
           env = {
             HACKS = "${final.xscreensaver}/libexec/xscreensaver";
-            WAYLAND_DEBUG = 1;
+            # WAYLAND_DEBUG = 1;
           };
         };
       };

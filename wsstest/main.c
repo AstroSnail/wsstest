@@ -110,7 +110,7 @@ flush_wl(struct wl_display *wl)
   if (error < 0 && errno != EPIPE) {
     return -1;
   }
-  fprintf(stderr, "wl_display_flush: %d\n", error);
+  /* fprintf(stderr, "wl_display_flush: %d\n", error); */
 
   return 0;
 }
@@ -522,7 +522,7 @@ handle_x11_event(xcb_connection_t *x11)
   CLEANUP(x11_event) xcb_generic_event_t *event = NULL;
   event = xcb_poll_for_event(x11);
   if (event == NULL) {
-    fputs("xcb_poll_for_event: No events\n", stderr);
+    /* fputs("xcb_poll_for_event: No events\n", stderr); */
     return 0;
   }
 
@@ -1083,7 +1083,7 @@ main(int argc, char **argv)
       perror("wl_display_dispatch_pending");
       break;
     }
-    fprintf(stderr, "wl_display_dispatch_pending: %d\n", error);
+    /* fprintf(stderr, "wl_display_dispatch_pending: %d\n", error); */
 
     /* === RESPOND TO WAYLAND EVENTS === */
 
@@ -1200,7 +1200,7 @@ main(int argc, char **argv)
     error = flush_wl(wl);
 
     error = xcb_flush(x11);
-    fprintf(stderr, "xcb_flush: %d\n", error);
+    /* fprintf(stderr, "xcb_flush: %d\n", error); */
 
     /* === HANDLE CONNECTION ERRORS === */
 
@@ -1232,7 +1232,7 @@ main(int argc, char **argv)
       perror("poll");
       break;
     }
-    fprintf(stderr, "poll: %d\n", poll_ready);
+    /* fprintf(stderr, "poll: %d\n", poll_ready); */
   } /* while (poll_ready > 0) */
 
   if (error != 0 || poll_ready < 0) {
