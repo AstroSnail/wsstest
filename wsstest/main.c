@@ -68,6 +68,7 @@ struct messages
 {
   uint32_t ping;
   uint32_t configure;
+  uint32_t frame_time;
 };
 
 struct outputs
@@ -282,6 +283,27 @@ static const struct xdg_surface_listener xdg_surface_listener = {
   .configure = handle_xdg_surface_configure,
 };
 
+static void
+handle_wl_callback_done(
+    void *data,
+    struct wl_callback *wl_callback,
+    uint32_t callback_data)
+{
+  struct messages *messages = data;
+  (void)wl_callback;
+
+  if (messages == NULL) {
+    fputs("handle_wl_callback_done: Missing messages\n", stderr);
+    return;
+  }
+
+  messages->frame_time = callback_data;
+}
+
+static const struct wl_callback_listener frame_callback_listener = {
+  .done = handle_wl_callback_done,
+};
+
 static int
 bind_compositor(
     struct wl_registry *registry,
@@ -302,6 +324,32 @@ bind_compositor(
   *surface = wl_compositor_create_surface(*compositor);
   if (*surface == NULL) {
     perror("wl_compositor_create_surface");
+    return -1;
+  }
+
+  return 0;
+}
+
+static int
+request_frame_callback(
+    struct wl_surface *surface,
+    struct messages *messages,
+    struct wl_callback **frame_callback)
+{
+  int error = 0;
+
+  *frame_callback = wl_surface_frame(surface);
+  if (*frame_callback == NULL) {
+    perror("wl_surface_frame");
+    return -1;
+  }
+
+  error = wl_callback_add_listener(
+      *frame_callback,
+      &frame_callback_listener,
+      messages);
+  if (error != 0) {
+    fputs("wl_callback_add_listener: listener already set\n", stderr);
     return -1;
   }
 
@@ -613,6 +661,15 @@ cleanup_wl_surface(struct wl_surface **surface)
 }
 
 static void
+cleanup_wl_callback(struct wl_callback **callback)
+{
+  if (*callback != NULL) {
+    wl_callback_destroy(*callback);
+    *callback = NULL;
+  }
+}
+
+static void
 cleanup_outputs(struct outputs *outputs)
 {
   /* TODO-OUTPUT */
@@ -811,6 +868,7 @@ main(int argc, char **argv)
 
   CLEANUP(wl_compositor) struct wl_compositor *compositor = NULL;
   CLEANUP(wl_surface) struct wl_surface *surface = NULL;
+  CLEANUP(wl_callback) struct wl_callback *frame_callback = NULL;
   CLEANUP(outputs) struct outputs outputs = { 0 };
   CLEANUP(wl_shm) struct wl_shm *shm = NULL;
   CLEANUP(wl_shm_pool) struct wl_shm_pool *shm_pool = NULL;
@@ -1087,7 +1145,6 @@ main(int argc, char **argv)
     if (xdg_surface != NULL && messages.configure != 0 && surface != NULL &&
         buffer[0] != NULL && buffer[1] != NULL) {
       xdg_surface_ack_configure(xdg_surface, messages.configure);
-      messages.configure = 0;
 
       update_buffer(
           x11,
@@ -1096,11 +1153,42 @@ main(int argc, char **argv)
           &((uint8_t *)shm_region.addr)[next_buffer * buffer_size],
           buffer_size);
 
+      cleanup_wl_callback(&frame_callback);
+      error = request_frame_callback(surface, &messages, &frame_callback);
       wl_surface_attach(surface, buffer[next_buffer], 0, 0);
       wl_surface_damage(surface, 0, 0, INT32_MAX, INT32_MAX);
       wl_surface_commit(surface);
 
+      messages.configure = 0;
       next_buffer++;
+    }
+    if (error != 0) {
+      break;
+    }
+    if (next_buffer > 1) {
+      next_buffer = 0;
+    }
+
+    if (messages.frame_time != 0 && surface != NULL && buffer[0] != NULL &&
+        buffer[1] != NULL) {
+      update_buffer(
+          x11,
+          &get_image_cookie,
+          window,
+          &((uint8_t *)shm_region.addr)[next_buffer * buffer_size],
+          buffer_size);
+
+      cleanup_wl_callback(&frame_callback);
+      error = request_frame_callback(surface, &messages, &frame_callback);
+      wl_surface_attach(surface, buffer[next_buffer], 0, 0);
+      wl_surface_damage(surface, 0, 0, INT32_MAX, INT32_MAX);
+      wl_surface_commit(surface);
+
+      messages.frame_time = 0;
+      next_buffer++;
+    }
+    if (error != 0) {
+      break;
     }
     if (next_buffer > 1) {
       next_buffer = 0;
