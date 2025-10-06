@@ -505,11 +505,20 @@ handle_x11_event(xcb_connection_t *x11)
         xcb_event_get_request_label(event_error->major_code),
         event_error->resource_id,
         event_error->sequence);
+
     /*
      * break the event loop on any XCB_ERROR. Xlib makes an exception for
      * error_code 17 BadImplementation (server does not implement operation) but
      * i don't care.
+     *
+     * if the error is a result of the initial GetImage request, carry on. this
+     * is a workaround!
+     * TODO: figure out what's wrong with it
      */
+    if (event_error->major_code == XCB_GET_IMAGE &&
+        event_error->sequence == 3) {
+      break;
+    }
     return -1;
 
   default:
@@ -518,6 +527,52 @@ handle_x11_event(xcb_connection_t *x11)
   } /* switch (event_type) */
 
   return 1;
+}
+
+static void
+cleanup_x11_get_image_reply(xcb_get_image_reply_t **get_image_reply)
+{
+  if (*get_image_reply != NULL) {
+    free(*get_image_reply);
+    *get_image_reply = NULL;
+  }
+}
+
+static void
+update_buffer(
+    xcb_connection_t *x11,
+    struct xcb_get_image_cookie_t *get_image_cookie,
+    xcb_window_t window,
+    uint8_t *buffer_mem,
+    size_t buffer_len)
+{
+  CLEANUP(x11_get_image_reply) xcb_get_image_reply_t *get_image_reply = NULL;
+  get_image_reply = xcb_get_image_reply(x11, *get_image_cookie, NULL);
+
+  if (get_image_reply != NULL) {
+    uint8_t *get_image_data = xcb_get_image_data(get_image_reply);
+    /* xcb_*_length returns int, assuming it's non-negative */
+    size_t get_image_data_length = xcb_get_image_data_length(get_image_reply);
+    if (get_image_data_length > buffer_len) {
+      get_image_data_length = buffer_len;
+    }
+
+    memcpy(buffer_mem, get_image_data, get_image_data_length);
+  }
+  /* otherwise, an error is waiting in the event queue */
+  /* TODO: alert caller not to swap buffers when GetImage fails */
+
+  /* request next image right after copying the current one. this causes the
+   * output to lag against the input by about 1 update, but we wait less */
+  *get_image_cookie = xcb_get_image_unchecked(
+      /*          c */ x11,
+      /*     format */ XCB_IMAGE_FORMAT_Z_PIXMAP,
+      /*   drawable */ window,
+      /*          x */ 0,
+      /*          y */ 0,
+      /*      width */ width,  /*screen_preferred->width_in_pixels,*/
+      /*     height */ height, /*screen_preferred->height_in_pixels,*/
+      /* plane_mask */ 0xFFFFFFFF);
 }
 
 static void
@@ -812,6 +867,22 @@ main(int argc, char **argv)
 
   xcb_map_window(x11, window);
 
+  /*
+   * replies to requests are events, but xcb doesn't let me handle them in the
+   * event loop, so we hang onto the cookie to retrieve the reply later. this is
+   * the initial request that will be continually issued in a loop; this call is
+   * duplicated in update_surface().
+   */
+  xcb_get_image_cookie_t get_image_cookie = xcb_get_image_unchecked(
+      /*          c */ x11,
+      /*     format */ XCB_IMAGE_FORMAT_Z_PIXMAP,
+      /*   drawable */ window,
+      /*          x */ 0,
+      /*          y */ 0,
+      /*      width */ width,  /*screen_preferred->width_in_pixels,*/
+      /*     height */ height, /*screen_preferred->height_in_pixels,*/
+      /* plane_mask */ 0xFFFFFFFF);
+
   error = xcb_flush(x11);
   fprintf(stderr, "xcb_flush: %d\n", error);
   if (error <= 0) {
@@ -911,10 +982,6 @@ main(int argc, char **argv)
   bool got_x11_error = false;
   struct messages messages = { 0 };
   int next_buffer = 0;
-  xcb_get_image_cookie_t get_image_cookie = { 0 };
-  xcb_get_image_reply_t *get_image_reply = NULL;
-  uint8_t *get_image_data = NULL;
-  int get_image_data_length = 0;
   int poll_ready = 1;
   struct pollfd connection_poll[2] = {
     { .fd = wl_display_get_fd(wl), .events = POLLIN },
@@ -943,10 +1010,6 @@ main(int argc, char **argv)
     /* === RESPOND TO X11 EVENTS === */
 
     /* if we ever respond to x11 events, we send the responses here */
-
-    error = xcb_flush(x11);
-    fprintf(stderr, "xcb_flush: %d\n", error);
-    /* ignore flush errors for now, we check connection errors further down */
 
     /* === RECEIVE WAYLAND EVENTS === */
 
@@ -1023,50 +1086,33 @@ main(int argc, char **argv)
     /* TODO-BUFFER */
     if (xdg_surface != NULL && messages.configure != 0 && surface != NULL &&
         buffer[0] != NULL && buffer[1] != NULL) {
-      /* TODO: would like to send-and-forget the request and handle the response
-       * in handle_x11_event */
-      /* TODO: under what circumstances does the server reply with error?
-       * something about width and height seems to affect it */
-      get_image_cookie = xcb_get_image_unchecked(
-          /*          c */ x11,
-          /*     format */ XCB_IMAGE_FORMAT_Z_PIXMAP,
-          /*   drawable */ window,
-          /*          x */ 0,
-          /*          y */ 0,
-          /*      width */ width,  /*screen_preferred->width_in_pixels,*/
-          /*     height */ height, /*screen_preferred->height_in_pixels,*/
-          /* plane_mask */ 0xFFFFFFFF);
-      /* xcb_flush(x11); */
-      get_image_reply = xcb_get_image_reply(x11, get_image_cookie, NULL);
-      if (get_image_reply != NULL) {
-        get_image_data = xcb_get_image_data(get_image_reply);
-        get_image_data_length = xcb_get_image_data_length(get_image_reply);
-        if (get_image_data_length > buffer_size) {
-          get_image_data_length = buffer_size;
-        }
-        memcpy(
-            &((uint8_t *)shm_region.addr)[next_buffer * buffer_size],
-            get_image_data,
-            get_image_data_length);
-
-        free(get_image_reply);
-        get_image_reply = NULL;
-        get_image_data = NULL;
-        get_image_data_length = 0;
-      }
-
       xdg_surface_ack_configure(xdg_surface, messages.configure);
+      messages.configure = 0;
+
+      update_buffer(
+          x11,
+          &get_image_cookie,
+          window,
+          &((uint8_t *)shm_region.addr)[next_buffer * buffer_size],
+          buffer_size);
+
       wl_surface_attach(surface, buffer[next_buffer], 0, 0);
       wl_surface_damage(surface, 0, 0, INT32_MAX, INT32_MAX);
       wl_surface_commit(surface);
-      messages.configure = 0;
+
       next_buffer++;
     }
     if (next_buffer > 1) {
       next_buffer = 0;
     }
 
+    /* === FLUSH REQUESTS === */
+
+    /* ignore flush errors for now, we check connection errors further down */
     error = flush_wl(wl);
+
+    error = xcb_flush(x11);
+    fprintf(stderr, "xcb_flush: %d\n", error);
 
     /* === HANDLE CONNECTION ERRORS === */
 
