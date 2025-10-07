@@ -57,10 +57,10 @@ struct names
 };
 
 enum {
-  compositor_version = 1,
-  output_version = 3,
+  compositor_version = 4, /* latest: 6 */
+  output_version = 3,     /* latest: 4 */
   shm_version = 2,
-  wm_base_version = 1,
+  wm_base_version = 1, /* latest: 7 */
   session_lock_manager_version = 1,
 };
 
@@ -596,7 +596,7 @@ update_surface(
 
   /* need to attach the initial buffer to map the window, no matter what */
   wl_surface_attach(surface, buffer, 0, 0);
-  wl_surface_damage(surface, 0, 0, INT32_MAX, INT32_MAX);
+  wl_surface_damage_buffer(surface, 0, 0, INT32_MAX, INT32_MAX);
 
   next_buffer++;
   if (next_buffer > 1) {
