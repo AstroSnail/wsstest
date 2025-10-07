@@ -331,32 +331,6 @@ bind_compositor(
 }
 
 static int
-request_frame_callback(
-    struct wl_surface *surface,
-    struct messages *messages,
-    struct wl_callback **frame_callback)
-{
-  int error = 0;
-
-  *frame_callback = wl_surface_frame(surface);
-  if (*frame_callback == NULL) {
-    perror("wl_surface_frame");
-    return -1;
-  }
-
-  error = wl_callback_add_listener(
-      *frame_callback,
-      &frame_callback_listener,
-      messages);
-  if (error != 0) {
-    fputs("wl_callback_add_listener: listener already set\n", stderr);
-    return -1;
-  }
-
-  return 0;
-}
-
-static int
 bind_outputs(
     struct wl_registry *registry,
     size_t outputs_num,
@@ -389,7 +363,7 @@ bind_shm(
     int shm_fd,
     struct wl_shm **shm,
     struct wl_shm_pool **shm_pool,
-    struct wl_buffer *(*buffer)[2])
+    struct wl_buffer *(*buffers)[2])
 {
   int error = 0;
 
@@ -411,26 +385,26 @@ bind_shm(
     return -1;
   }
 
-  (*buffer)[0] = wl_shm_pool_create_buffer(
+  (*buffers)[0] = wl_shm_pool_create_buffer(
       /* wl_shm_pool */ *shm_pool,
       /*      offset */ buffer_size * 0,
       /*       width */ width,
       /*      height */ height,
       /*      stride */ stride,
       /*      format */ WL_SHM_FORMAT_XRGB8888);
-  if ((*buffer)[0] == NULL) {
+  if ((*buffers)[0] == NULL) {
     perror("wl_shm_pool_create_buffer");
     return -1;
   }
 
-  (*buffer)[1] = wl_shm_pool_create_buffer(
+  (*buffers)[1] = wl_shm_pool_create_buffer(
       /* wl_shm_pool */ *shm_pool,
       /*      offset */ buffer_size * 1,
       /*       width */ width,
       /*      height */ height,
       /*      stride */ stride,
       /*      format */ WL_SHM_FORMAT_XRGB8888);
-  if ((*buffer)[1] == NULL) {
+  if ((*buffers)[1] == NULL) {
     perror("wl_shm_pool_create_buffer");
     return -1;
   }
@@ -561,7 +535,7 @@ handle_x11_event(xcb_connection_t *x11)
      *
      * if the error is a result of the initial GetImage request, carry on. this
      * is a workaround!
-     * TODO: figure out what's wrong with it
+     * TODO: figure out what's wrong with it (search: TODO-GETIMAGE)
      */
     if (event_error->major_code == XCB_GET_IMAGE &&
         event_error->sequence == 3) {
@@ -586,17 +560,29 @@ cleanup_x11_get_image_reply(xcb_get_image_reply_t **get_image_reply)
   }
 }
 
-static void
-update_buffer(
+/* TODO-BUFFER */
+static int
+update_surface(
     xcb_connection_t *x11,
     struct xcb_get_image_cookie_t *get_image_cookie,
     xcb_window_t window,
-    uint8_t *buffer_mem,
-    size_t buffer_len)
+    struct messages *messages,
+    struct wl_surface *surface,
+    struct wl_callback **frame_callback,
+    struct wl_buffer *(*buffers)[2],
+    uint8_t *buffers_mem,
+    size_t buffer_len,
+    int *arg_next_buffer)
 {
+  int error = 0;
+  int next_buffer = *arg_next_buffer;
+  struct wl_buffer *buffer = (*buffers)[next_buffer];
+  uint8_t *buffer_mem = &buffers_mem[buffer_len * next_buffer];
+
   CLEANUP(x11_get_image_reply) xcb_get_image_reply_t *get_image_reply = NULL;
   get_image_reply = xcb_get_image_reply(x11, *get_image_cookie, NULL);
 
+  /* TODO-GETIMAGE */
   if (get_image_reply != NULL) {
     uint8_t *get_image_data = xcb_get_image_data(get_image_reply);
     /* xcb_*_length returns int, assuming it's non-negative */
@@ -607,8 +593,15 @@ update_buffer(
 
     memcpy(buffer_mem, get_image_data, get_image_data_length);
   }
-  /* otherwise, an error is waiting in the event queue */
-  /* TODO: alert caller not to swap buffers when GetImage fails */
+
+  /* need to attach the initial buffer to map the window, no matter what */
+  wl_surface_attach(surface, buffer, 0, 0);
+  wl_surface_damage(surface, 0, 0, INT32_MAX, INT32_MAX);
+
+  next_buffer++;
+  if (next_buffer > 1) {
+    next_buffer = 0;
+  }
 
   /* request next image right after copying the current one. this causes the
    * output to lag against the input by about 1 update, but we wait less */
@@ -621,6 +614,28 @@ update_buffer(
       /*      width */ width,  /*screen_preferred->width_in_pixels,*/
       /*     height */ height, /*screen_preferred->height_in_pixels,*/
       /* plane_mask */ 0xFFFFFFFF);
+
+  /* request next frame. the reply to the above request should arrive by then */
+  *frame_callback = wl_surface_frame(surface);
+  if (*frame_callback == NULL) {
+    perror("wl_surface_frame");
+    return -1;
+  }
+
+  error = wl_callback_add_listener(
+      *frame_callback,
+      &frame_callback_listener,
+      messages);
+  if (error != 0) {
+    fputs("wl_callback_add_listener: listener already set\n", stderr);
+    return -1;
+  }
+
+  /* all done, cap the update with a commit */
+  wl_surface_commit(surface);
+
+  *arg_next_buffer = next_buffer;
+  return 0;
 }
 
 static void
@@ -872,7 +887,7 @@ main(int argc, char **argv)
   CLEANUP(outputs) struct outputs outputs = { 0 };
   CLEANUP(wl_shm) struct wl_shm *shm = NULL;
   CLEANUP(wl_shm_pool) struct wl_shm_pool *shm_pool = NULL;
-  CLEANUP(wl_buffer) struct wl_buffer *buffer[2] = { NULL }; /* TODO-BUFFER */
+  CLEANUP(wl_buffer) struct wl_buffer *buffers[2] = { NULL }; /* TODO-BUFFER */
   CLEANUP(xdg_wm_base) struct xdg_wm_base *wm_base = NULL;
   CLEANUP(xdg_surface) struct xdg_surface *xdg_surface = NULL;
   CLEANUP(xdg_toplevel) struct xdg_toplevel *toplevel = NULL;
@@ -930,6 +945,7 @@ main(int argc, char **argv)
    * event loop, so we hang onto the cookie to retrieve the reply later. this is
    * the initial request that will be continually issued in a loop; this call is
    * duplicated in update_surface().
+   * TODO-GETIMAGE
    */
   xcb_get_image_cookie_t get_image_cookie = xcb_get_image_unchecked(
       /*          c */ x11,
@@ -1106,7 +1122,7 @@ main(int argc, char **argv)
     }
 
     if (names.shm != 0 && shm == NULL) {
-      error = bind_shm(registry, names.shm, shm_fd, &shm, &shm_pool, &buffer);
+      error = bind_shm(registry, names.shm, shm_fd, &shm, &shm_pool, &buffers);
     }
     if (error != 0) {
       break;
@@ -1143,58 +1159,50 @@ main(int argc, char **argv)
 
     /* TODO-BUFFER */
     if (xdg_surface != NULL && messages.configure != 0 && surface != NULL &&
-        buffer[0] != NULL && buffer[1] != NULL) {
+        buffers[0] != NULL && buffers[1] != NULL) {
       xdg_surface_ack_configure(xdg_surface, messages.configure);
 
-      update_buffer(
+      cleanup_wl_callback(&frame_callback);
+      error = update_surface(
           x11,
           &get_image_cookie,
           window,
-          &((uint8_t *)shm_region.addr)[next_buffer * buffer_size],
-          buffer_size);
-
-      cleanup_wl_callback(&frame_callback);
-      error = request_frame_callback(surface, &messages, &frame_callback);
-      wl_surface_attach(surface, buffer[next_buffer], 0, 0);
-      wl_surface_damage(surface, 0, 0, INT32_MAX, INT32_MAX);
-      wl_surface_commit(surface);
+          &messages,
+          surface,
+          &frame_callback,
+          &buffers,
+          (uint8_t *)shm_region.addr,
+          buffer_size,
+          &next_buffer);
 
       messages.configure = 0;
-      next_buffer++;
     }
     if (error != 0) {
       break;
     }
-    if (next_buffer > 1) {
-      next_buffer = 0;
-    }
 
-    if (messages.frame_time != 0 && surface != NULL && buffer[0] != NULL &&
-        buffer[1] != NULL) {
-      update_buffer(
+    if (messages.frame_time != 0 && surface != NULL && buffers[0] != NULL &&
+        buffers[1] != NULL) {
+      cleanup_wl_callback(&frame_callback);
+      error = update_surface(
           x11,
           &get_image_cookie,
           window,
-          &((uint8_t *)shm_region.addr)[next_buffer * buffer_size],
-          buffer_size);
-
-      cleanup_wl_callback(&frame_callback);
-      error = request_frame_callback(surface, &messages, &frame_callback);
-      wl_surface_attach(surface, buffer[next_buffer], 0, 0);
-      wl_surface_damage(surface, 0, 0, INT32_MAX, INT32_MAX);
-      wl_surface_commit(surface);
+          &messages,
+          surface,
+          &frame_callback,
+          &buffers,
+          (uint8_t *)shm_region.addr,
+          buffer_size,
+          &next_buffer);
 
       messages.frame_time = 0;
-      next_buffer++;
     }
     if (error != 0) {
       break;
     }
-    if (next_buffer > 1) {
-      next_buffer = 0;
-    }
 
-    /* === FLUSH REQUESTS === */
+    /* === FLUSH RESPONSES === */
 
     /* ignore flush errors for now, we check connection errors further down */
     error = flush_wl(wl);
