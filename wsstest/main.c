@@ -33,6 +33,8 @@ extern char **environ;
 #define CLEANUP(how) __attribute__((cleanup(cleanup_##how)))
 #define COUNTOF(array) (sizeof(array) / sizeof(array)[0])
 
+static const char app_id[] = "wsstest";
+static const char instance_class[] = "wsstest\0Wsstest";
 static const char shm_name[] = "/wsstest_shm";
 
 /* TODO: find these values dynamically for each output (search: TODO-SHM) */
@@ -456,6 +458,8 @@ bind_wm_base(
     return -1;
   }
 
+  xdg_toplevel_set_app_id(*toplevel, app_id);
+
   /* commit the unattached surface to prompt the server to configure it */
   wl_surface_commit(surface);
 
@@ -538,7 +542,7 @@ handle_x11_event(xcb_connection_t *x11)
      * TODO: figure out what's wrong with it (search: TODO-GETIMAGE)
      */
     if (event_error->major_code == XCB_GET_IMAGE &&
-        event_error->sequence == 3) {
+        event_error->sequence == 4) {
       break;
     }
     return -1;
@@ -937,6 +941,18 @@ main(int argc, char **argv)
       /*       visual */ screen_preferred->root_visual,
       /*   value_mask */ 0,
       /*   value_list */ NULL);
+
+  /* TODO: intern_atom for UTF8_STRING or COMPOUND_TEXT (requires an extra round
+   * trip) */
+  xcb_change_property(
+      /*        c */ x11,
+      /*     mode */ XCB_PROP_MODE_REPLACE,
+      /*   window */ window,
+      /* property */ XCB_ATOM_WM_CLASS,
+      /*     type */ XCB_ATOM_STRING, /* NB: this means latin-1 */
+      /*   format */ 8,
+      /* data_len */ COUNTOF(instance_class), /* include terminating nul byte */
+      /*     data */ instance_class);
 
   xcb_map_window(x11, window);
 
