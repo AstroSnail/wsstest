@@ -68,9 +68,9 @@ enum {
 
 struct messages
 {
+  uint32_t frame_time;
   uint32_t ping;
   uint32_t configure;
-  uint32_t frame_time;
 };
 
 struct outputs
@@ -137,41 +137,6 @@ read_wl_events(struct wl_display *wl)
 
   return 0;
 }
-
-static void
-handle_wl_shm_format(void *data, struct wl_shm *wl_shm, uint32_t format)
-{
-  (void)data;
-  (void)wl_shm;
-
-  char fourcc[4] = { 0 };
-  switch (format) {
-  case WL_SHM_FORMAT_ARGB8888:
-    memcpy(fourcc, "AR24", 4);
-    break;
-  case WL_SHM_FORMAT_XRGB8888:
-    memcpy(fourcc, "XR24", 4);
-    break;
-  default:
-    fourcc[0] = format;
-    fourcc[1] = format >> 8;
-    fourcc[2] = format >> 16;
-    fourcc[3] = format >> 24;
-    break;
-  }
-
-  fprintf(
-      stderr,
-      "Wayland shm_format\n"
-      "  format: %#" PRIx32 "\n"
-      "  fourCC: %.4s\n",
-      format,
-      fourcc);
-}
-
-static const struct wl_shm_listener shm_listener = {
-  .format = handle_wl_shm_format,
-};
 
 static void
 handle_wl_registry_global(
@@ -244,6 +209,62 @@ static const struct wl_registry_listener registry_listener = {
 };
 
 static void
+handle_frame_callback_done(
+    void *data,
+    struct wl_callback *wl_callback,
+    uint32_t callback_data)
+{
+  struct messages *messages = data;
+  (void)wl_callback;
+
+  if (messages == NULL) {
+    fputs("handle_wl_callback_done: Missing messages\n", stderr);
+    return;
+  }
+
+  messages->frame_time = callback_data;
+}
+
+static const struct wl_callback_listener frame_callback_listener = {
+  .done = handle_frame_callback_done,
+};
+
+static void
+handle_wl_shm_format(void *data, struct wl_shm *wl_shm, uint32_t format)
+{
+  (void)data;
+  (void)wl_shm;
+
+  char fourcc[4] = { 0 };
+  switch (format) {
+  case WL_SHM_FORMAT_ARGB8888:
+    memcpy(fourcc, "AR24", 4);
+    break;
+  case WL_SHM_FORMAT_XRGB8888:
+    memcpy(fourcc, "XR24", 4);
+    break;
+  default:
+    fourcc[0] = format;
+    fourcc[1] = format >> 8;
+    fourcc[2] = format >> 16;
+    fourcc[3] = format >> 24;
+    break;
+  }
+
+  fprintf(
+      stderr,
+      "Wayland shm_format\n"
+      "  format: %#" PRIx32 "\n"
+      "  fourCC: %.4s\n",
+      format,
+      fourcc);
+}
+
+static const struct wl_shm_listener shm_listener = {
+  .format = handle_wl_shm_format,
+};
+
+static void
 handle_xdg_wm_base_ping(
     void *data,
     struct xdg_wm_base *xdg_wm_base,
@@ -283,27 +304,6 @@ handle_xdg_surface_configure(
 
 static const struct xdg_surface_listener xdg_surface_listener = {
   .configure = handle_xdg_surface_configure,
-};
-
-static void
-handle_wl_callback_done(
-    void *data,
-    struct wl_callback *wl_callback,
-    uint32_t callback_data)
-{
-  struct messages *messages = data;
-  (void)wl_callback;
-
-  if (messages == NULL) {
-    fputs("handle_wl_callback_done: Missing messages\n", stderr);
-    return;
-  }
-
-  messages->frame_time = callback_data;
-}
-
-static const struct wl_callback_listener frame_callback_listener = {
-  .done = handle_wl_callback_done,
 };
 
 static int
@@ -1251,7 +1251,7 @@ main(int argc, char **argv)
 
     /* === WAIT FOR EVENTS === */
 
-    poll_ready = poll(connection_poll, COUNTOF(connection_poll), 60000);
+    poll_ready = poll(connection_poll, COUNTOF(connection_poll), -1);
     if (poll_ready < 0) {
       perror("poll");
       break;
