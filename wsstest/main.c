@@ -626,7 +626,7 @@ update_surface(
       /*          y */ 0,
       /*      width */ width,
       /*     height */ height,
-      /* plane_mask */ 0xFFFFFFFF);
+      /* plane_mask */ UINT32_MAX);
 
   /* request next frame. the reply to the above request should arrive by then */
   *frame_callback = wl_surface_frame(surface);
@@ -955,7 +955,7 @@ main(int argc, char **argv)
       /*       height */ height,
       /* border_width */ 0,
       /*       _class */ XCB_WINDOW_CLASS_INPUT_OUTPUT,
-      /*       visual */ screen_preferred->root_visual,
+      /*       visual */ XCB_COPY_FROM_PARENT,
       /*   value_mask */ 0,
       /*   value_list */ NULL);
 
