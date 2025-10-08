@@ -36,6 +36,7 @@ extern char **environ;
 static const char app_id[] = "wsstest";
 static const char instance_class[] = "wsstest\0Wsstest";
 static const char shm_name[] = "/wsstest_shm";
+static const char debug_env[] = "WSSTEST_DEBUG";
 
 /* TODO: find these values dynamically for each output (search: TODO-SHM) */
 /* TODO: more than 2 buffers? (search: TODO-BUFFER) */
@@ -85,6 +86,8 @@ struct shm_region
   size_t len;
 };
 
+static bool debug = false;
+
 static int
 flush_wl(struct wl_display *wl)
 {
@@ -112,7 +115,9 @@ flush_wl(struct wl_display *wl)
   if (error < 0 && errno != EPIPE) {
     return -1;
   }
-  /* fprintf(stderr, "wl_display_flush: %d\n", error); */
+  if (debug) {
+    fprintf(stderr, "wl_display_flush: %d\n", error);
+  }
 
   return 0;
 }
@@ -500,7 +505,9 @@ handle_x11_event(xcb_connection_t *x11)
   CLEANUP(x11_event) xcb_generic_event_t *event = NULL;
   event = xcb_poll_for_event(x11);
   if (event == NULL) {
-    /* fputs("xcb_poll_for_event: No events\n", stderr); */
+    if (debug) {
+      fputs("xcb_poll_for_event: No events\n", stderr);
+    }
     return 0;
   }
 
@@ -607,8 +614,12 @@ update_surface(
     next_buffer = 0;
   }
 
-  /* request next image right after copying the current one. this causes the
-   * output to lag against the input by about 1 update, but we wait less */
+  /*
+   * request next image right after copying the current one. this way the output
+   * lags against the input by about 1 update (very noticeable in debug mode,
+   * with the frame-based update disabled) but we wait less, possibly leading to
+   * a smoother output frame rate.
+   */
   *get_image_cookie = xcb_get_image_unchecked(
       /*          c */ x11,
       /*     format */ XCB_IMAGE_FORMAT_Z_PIXMAP,
@@ -855,6 +866,12 @@ int
 main(int argc, char **argv)
 {
   int error = 0;
+
+  char *is_debug = getenv(debug_env);
+  if (is_debug != NULL) {
+    debug = true;
+    setenv("WAYLAND_DEBUG", "1", 0);
+  }
 
   if (argc != 2) {
     fprintf(stderr, "Usage: %s <path>\n", argv[0]);
@@ -1115,7 +1132,9 @@ main(int argc, char **argv)
       perror("wl_display_dispatch_pending");
       break;
     }
-    /* fprintf(stderr, "wl_display_dispatch_pending: %d\n", error); */
+    if (debug) {
+      fprintf(stderr, "wl_display_dispatch_pending: %d\n", error);
+    }
 
     /* === RESPOND TO WAYLAND EVENTS === */
 
@@ -1197,8 +1216,8 @@ main(int argc, char **argv)
       break;
     }
 
-    if (messages.frame_time != 0 && surface != NULL && buffers[0] != NULL &&
-        buffers[1] != NULL) {
+    if (!debug && messages.frame_time != 0 && surface != NULL &&
+        buffers[0] != NULL && buffers[1] != NULL) {
       cleanup_wl_callback(&frame_callback);
       error = update_surface(
           x11,
@@ -1224,7 +1243,9 @@ main(int argc, char **argv)
     error = flush_wl(wl);
 
     error = xcb_flush(x11);
-    /* fprintf(stderr, "xcb_flush: %d\n", error); */
+    if (debug) {
+      fprintf(stderr, "xcb_flush: %d\n", error);
+    }
 
     /* === HANDLE CONNECTION ERRORS === */
 
@@ -1256,7 +1277,9 @@ main(int argc, char **argv)
       perror("poll");
       break;
     }
-    /* fprintf(stderr, "poll: %d\n", poll_ready); */
+    if (debug) {
+      fprintf(stderr, "poll: %d\n", poll_ready);
+    }
   } /* while (poll_ready > 0) */
 
   if (error != 0 || poll_ready < 0) {
