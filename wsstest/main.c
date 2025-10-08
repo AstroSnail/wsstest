@@ -62,8 +62,8 @@ struct names
 enum {
   compositor_version = 4, /* latest: 6 */
   output_version = 3,     /* latest: 4 */
-  shm_version = 2,
-  wm_base_version = 1, /* latest: 7 */
+  shm_version = 1,        /* latest: 2 */
+  wm_base_version = 1,    /* latest: 7 */
   session_lock_manager_version = 1,
 };
 
@@ -714,7 +714,9 @@ static void
 cleanup_wl_shm(struct wl_shm **shm)
 {
   if (*shm != NULL) {
-    wl_shm_release(*shm);
+    /* TODO: come back here when hyprland supports wl_shm version 2 */
+    /* wl_shm_release(*shm); */
+    wl_shm_destroy(*shm);
     *shm = NULL;
   }
 }
