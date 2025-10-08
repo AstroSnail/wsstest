@@ -861,6 +861,11 @@ cleanup_shm_region(struct shm_region *shm_region)
  * which makes lots of copies. we could use the x11 shm extension to avoid a
  * copy here in wsstest, or figure out how to use handles to gpu memory to
  * minimize copies altogether.
+ *
+ * TODO: sometimes the x11 window doesn't appear on the screen, but the window
+ * definitely exists, is mapped, GetImage succeeds on it and it can be examined
+ * with xprop and xwininfo. what? how? why? this seems to happen to other x11
+ * apps too (xterm, dmenu) so it might be a bug in sway.
  */
 int
 main(int argc, char **argv)
