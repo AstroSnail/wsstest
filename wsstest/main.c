@@ -27,8 +27,10 @@ extern char **environ;
 #include <wayland-client-protocols/xdg-shell.h>
 #include <xcb/xcb.h>
 #include <xcb/xcb_util.h>
-#define XCB_ERROR 0
-#define XCB_REPLY 1
+enum {
+  XCB_ERROR = 0,
+  XCB_REPLY = 1,
+};
 
 #define CLEANUP(how) __attribute__((cleanup(cleanup_##how)))
 #define COUNTOF(array) (sizeof(array) / sizeof(array)[0])
