@@ -543,15 +543,7 @@ handle_x11_event(xcb_connection_t *x11)
      * break the event loop on any XCB_ERROR. Xlib makes an exception for
      * error_code 17 BadImplementation (server does not implement operation) but
      * i don't care.
-     *
-     * if the error is a result of the initial GetImage request, carry on. this
-     * is a workaround!
-     * TODO: figure out what's wrong with it (search: TODO-GETIMAGE)
      */
-    if (event_error->major_code == XCB_GET_IMAGE &&
-        event_error->sequence == 4) {
-      break;
-    }
     return -1;
 
   default:
@@ -590,11 +582,17 @@ update_surface(
   struct wl_buffer *buffer = (*buffers)[next_buffer];
   uint8_t *buffer_mem = &buffers_mem[buffer_len * next_buffer];
 
-  CLEANUP(x11_get_image_reply) xcb_get_image_reply_t *get_image_reply = NULL;
-  get_image_reply = xcb_get_image_reply(x11, *get_image_cookie, NULL);
+  /* xcb does tricks to ensure the serial of a valid request is never 0 */
+  if (get_image_cookie->sequence != 0) {
+    /* ideally we would get the reply asynchronously in the x11 event handler so
+     * we never block here, but xcb's design seems to discourage this */
+    CLEANUP(x11_get_image_reply) xcb_get_image_reply_t *get_image_reply = NULL;
+    get_image_reply = xcb_get_image_reply(x11, *get_image_cookie, NULL);
+    if (get_image_reply == NULL) {
+      /* error is waiting in the queue */
+      return 0;
+    }
 
-  /* TODO-GETIMAGE */
-  if (get_image_reply != NULL) {
     uint8_t *get_image_data = xcb_get_image_data(get_image_reply);
     /* xcb_*_length returns int, assuming it's non-negative */
     size_t get_image_data_length = xcb_get_image_data_length(get_image_reply);
@@ -626,8 +624,8 @@ update_surface(
       /*   drawable */ window,
       /*          x */ 0,
       /*          y */ 0,
-      /*      width */ width,  /*screen_preferred->width_in_pixels,*/
-      /*     height */ height, /*screen_preferred->height_in_pixels,*/
+      /*      width */ width,
+      /*     height */ height,
       /* plane_mask */ 0xFFFFFFFF);
 
   /* request next frame. the reply to the above request should arrive by then */
@@ -953,8 +951,8 @@ main(int argc, char **argv)
       /*       parent */ screen_preferred->root,
       /*            x */ 0,
       /*            y */ 0,
-      /*        width */ screen_preferred->width_in_pixels,
-      /*       height */ screen_preferred->height_in_pixels,
+      /*        width */ width,
+      /*       height */ height,
       /* border_width */ 0,
       /*       _class */ XCB_WINDOW_CLASS_INPUT_OUTPUT,
       /*       visual */ screen_preferred->root_visual,
@@ -974,23 +972,6 @@ main(int argc, char **argv)
       /*     data */ instance_class);
 
   xcb_map_window(x11, window);
-
-  /*
-   * replies to requests are events, but xcb doesn't let me handle them in the
-   * event loop, so we hang onto the cookie to retrieve the reply later. this is
-   * the initial request that will be continually issued in a loop; this call is
-   * duplicated in update_surface().
-   * TODO-GETIMAGE
-   */
-  xcb_get_image_cookie_t get_image_cookie = xcb_get_image_unchecked(
-      /*          c */ x11,
-      /*     format */ XCB_IMAGE_FORMAT_Z_PIXMAP,
-      /*   drawable */ window,
-      /*          x */ 0,
-      /*          y */ 0,
-      /*      width */ width,  /*screen_preferred->width_in_pixels,*/
-      /*     height */ height, /*screen_preferred->height_in_pixels,*/
-      /* plane_mask */ 0xFFFFFFFF);
 
   error = xcb_flush(x11);
   fprintf(stderr, "xcb_flush: %d\n", error);
@@ -1089,6 +1070,7 @@ main(int argc, char **argv)
    * connection, otherwise we might leave events stuck in a queue for a while.
    */
   bool got_x11_error = false;
+  xcb_get_image_cookie_t get_image_cookie = { 0 };
   struct messages messages = { 0 };
   int next_buffer = 0;
   int poll_ready = 1;
