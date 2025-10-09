@@ -40,8 +40,11 @@ static const char instance_class[] = "wsstest\0Wsstest";
 static const char shm_name[] = "/wsstest_shm";
 static const char debug_env[] = "WSSTEST_DEBUG";
 
-/* TODO: find these values dynamically for each output (search: TODO-SHM) */
-/* TODO: more than 2 buffers? (search: TODO-BUFFER) */
+/*
+ * TODO: find these values dynamically for each output (search: TODO-SHM)
+ * TODO: allocate buffers dynamically and listen for wl_buffer release events
+ * (search: TODO-BUFFER)
+ */
 enum {
   width = 1024,
   height = 768,
@@ -63,7 +66,7 @@ struct names
 
 enum {
   compositor_version = 4, /* latest: 6 */
-  output_version = 3,     /* latest: 4 */
+  output_version = 1,     /* latest: 4 */
   shm_version = 1,        /* latest: 2 */
   wm_base_version = 1,    /* latest: 7 */
   session_lock_manager_version = 1,
@@ -98,6 +101,8 @@ flush_wl(struct wl_display *wl)
     { .fd = wl_display_get_fd(wl), .events = POLLOUT },
   };
 
+  /* TODO: handle POLLOUT in the event loop (so it's less blocking) and augment
+   * it with error checking on revents (see _xcb_conn_wait) */
   do {
     error = poll(flush_poll, COUNTOF(flush_poll), -1);
     if (error <= 0) {
@@ -657,7 +662,6 @@ static void
 cleanup_wl_display(struct wl_display **wl)
 {
   if (*wl != NULL) {
-    flush_wl(*wl);
     wl_display_disconnect(*wl);
     *wl = NULL;
   }
@@ -704,7 +708,7 @@ cleanup_outputs(struct outputs *outputs)
 {
   /* TODO-OUTPUT */
   for (size_t i = 0; i < outputs->num && i < 3; i++) {
-    wl_output_release(outputs->outputs[i]);
+    wl_output_destroy(outputs->outputs[i]);
     outputs->outputs[i] = NULL;
   }
   outputs->num = 0;
@@ -714,8 +718,6 @@ static void
 cleanup_wl_shm(struct wl_shm **shm)
 {
   if (*shm != NULL) {
-    /* TODO: come back here when hyprland supports wl_shm version 2 */
-    /* wl_shm_release(*shm); */
     wl_shm_destroy(*shm);
     *shm = NULL;
   }
@@ -788,8 +790,6 @@ cleanup_x11_connection(xcb_connection_t **x11)
   int error = 0;
 
   if (*x11 != NULL) {
-    error = xcb_flush(*x11);
-    fprintf(stderr, "xcb_flush: %d\n", error);
     xcb_disconnect(*x11);
     *x11 = NULL;
   }
@@ -921,6 +921,8 @@ main(int argc, char **argv)
   CLEANUP(xdg_toplevel) struct xdg_toplevel *toplevel = NULL;
   CLEANUP(ext_session_lock_manager)
   struct ext_session_lock_manager_v1 *session_lock_manager = NULL;
+  struct messages messages = { 0 };
+  int next_buffer = 0;
 
   error = flush_wl(wl);
   if (error != 0) {
@@ -980,13 +982,13 @@ main(int argc, char **argv)
 
   xcb_map_window(x11, window);
 
+  xcb_get_image_cookie_t get_image_cookie = { 0 };
+
   error = xcb_flush(x11);
   fprintf(stderr, "xcb_flush: %d\n", error);
-  if (error <= 0) {
+  if (error != 1) {
     return EXIT_FAILURE;
   }
-  /* unsure what positive error values mean, besides success */
-  /* i suspect that the only success value is 1 */
 
   /* === LAUNCH SCREENSAVER === */
 
@@ -1077,9 +1079,6 @@ main(int argc, char **argv)
    * connection, otherwise we might leave events stuck in a queue for a while.
    */
   bool got_x11_error = false;
-  xcb_get_image_cookie_t get_image_cookie = { 0 };
-  struct messages messages = { 0 };
-  int next_buffer = 0;
   int poll_ready = 1;
   struct pollfd connection_poll[2] = {
     { .fd = wl_display_get_fd(wl), .events = POLLIN },
@@ -1183,7 +1182,12 @@ main(int argc, char **argv)
       messages.ping = 0;
     }
 
-    /* TODO-BUFFER */
+    /*
+     * TODO-BUFFER
+     * TODO: use configure to kickstart the frame callback cycle and prepare
+     * upcoming buffers, but make update_surface the exclusive purview of the
+     * frame response
+     */
     if (xdg_surface != NULL && messages.configure != 0 && surface != NULL &&
         buffers[0] != NULL && buffers[1] != NULL) {
       xdg_surface_ack_configure(xdg_surface, messages.configure);
